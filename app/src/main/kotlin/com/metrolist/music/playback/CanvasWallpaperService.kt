@@ -10,7 +10,6 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.Shader
 import android.os.Build
 import android.service.wallpaper.WallpaperService
@@ -36,6 +35,7 @@ import com.metrolist.music.di.PlayerCache
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -61,8 +61,32 @@ class CanvasWallpaperService : WallpaperService() {
         private var currentArtworkUrl: String? = null
         private var artworkBitmap: Bitmap? = null
         private var hasSurface = false
+        private var isVideoRendered = false
 
         private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        private var artworkLoadJob: Job? = null
+
+        private val playerListener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                Timber.d("Wallpaper: First frame rendered")
+                isVideoRendered = true
+                // No need to draw manual frames anymore once video is rendering
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                Timber.d("Wallpaper: Playback state changed to $playbackState")
+                if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
+                    isVideoRendered = false
+                    drawFrame()
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                Timber.e(error, "Wallpaper player error: ${error.errorCodeName}")
+                isVideoRendered = false
+                drawFrame()
+            }
+        }
 
         private val scrimPaint = Paint().apply {
             color = Color.BLACK
@@ -124,7 +148,9 @@ class CanvasWallpaperService : WallpaperService() {
             super.onVisibilityChanged(visible)
             if (visible) {
                 player?.play()
-                drawFrame()
+                if (!isVideoRendered) {
+                    drawFrame()
+                }
             } else {
                 player?.pause()
             }
@@ -132,17 +158,29 @@ class CanvasWallpaperService : WallpaperService() {
 
         override fun onSurfaceRedrawNeeded(holder: SurfaceHolder) {
             super.onSurfaceRedrawNeeded(holder)
-            drawFrame()
+            if (!isVideoRendered) {
+                drawFrame()
+            }
         }
 
         override fun onSurfaceCreated(holder: SurfaceHolder) {
             super.onSurfaceCreated(holder)
+            Timber.d("Wallpaper: Surface created")
             hasSurface = true
             player?.setVideoSurfaceHolder(holder)
+            // Re-trigger content update to ensure player starts with surface
+            if (currentUrl != null && !isVideoRendered) {
+                val url = currentUrl
+                currentUrl = null // Reset to force update
+                updateContent(url, currentArtworkUrl)
+            } else {
+                drawFrame()
+            }
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             hasSurface = false
+            isVideoRendered = false
             player?.setVideoSurfaceHolder(null)
             super.onSurfaceDestroyed(holder)
         }
@@ -169,6 +207,7 @@ class CanvasWallpaperService : WallpaperService() {
                 .setMediaSourceFactory(mediaSourceFactory)
                 .build()
                 .apply {
+                    addListener(playerListener)
                     setAudioAttributes(AudioAttributes.DEFAULT, false)
                     videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
                     repeatMode = Player.REPEAT_MODE_ONE
@@ -178,20 +217,26 @@ class CanvasWallpaperService : WallpaperService() {
         }
 
         private fun updateContent(url: String?, artworkUrl: String?) {
+            Timber.d("Wallpaper: Updating content - url=$url, artwork=$artworkUrl")
             if (artworkUrl != currentArtworkUrl) {
                 currentArtworkUrl = artworkUrl
-                coroutineScope.launch {
+                artworkLoadJob?.cancel()
+                artworkLoadJob = coroutineScope.launch {
                     val bitmap = loadArtwork(artworkUrl)
                     artworkBitmap = bitmap
                     generatePaletteColors(bitmap)
-                    if (currentUrl == null) {
+                    if (!isVideoRendered) {
                         drawFrame()
                     }
                 }
             }
 
-            if (url == currentUrl) return
+            if (url == currentUrl) {
+                if (url == null && !isVideoRendered) drawFrame()
+                return
+            }
             currentUrl = url
+            isVideoRendered = false
 
             player?.let { p ->
                 p.stop()
@@ -204,13 +249,13 @@ class CanvasWallpaperService : WallpaperService() {
                     p.setMediaItem(mediaItem)
                     p.prepare()
                     if (isVisible) p.play()
-                } else {
-                    drawFrame()
                 }
+                drawFrame()
             }
         }
 
         private fun releasePlayer() {
+            player?.removeListener(playerListener)
             player?.release()
             player = null
         }
@@ -254,7 +299,7 @@ class CanvasWallpaperService : WallpaperService() {
                 fadeTargetColor = if (isDark(baseColor)) Color.BLACK else 0xFF121212.toInt()
                 
                 createFadeGradient()
-                if (currentUrl == null) {
+                if (!isVideoRendered) {
                     drawFrame()
                 }
             }
@@ -282,7 +327,7 @@ class CanvasWallpaperService : WallpaperService() {
         }
 
         private fun drawFrame() {
-            if (!hasSurface || !isVisible || !currentUrl.isNullOrBlank()) return
+            if (!hasSurface || !isVisible || isVideoRendered) return
             
             val holder = surfaceHolder
             val canvas = try {

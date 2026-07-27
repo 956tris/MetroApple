@@ -116,7 +116,11 @@ fun rememberSpotifyCanvasMedia(
     if (mediaMetadata == null || !enabled || !shouldLoad || cookie.isBlank()) return null
     var media by remember(mediaMetadata.id, cookie) { mutableStateOf<SpotifyCanvasMedia?>(null) }
     LaunchedEffect(mediaMetadata.id, cookie) {
-        media = SpotifyCanvasClient.resolveBackground(mediaMetadata, cookie)
+        media = runCatching {
+            SpotifyCanvasClient.resolveBackground(mediaMetadata, cookie)
+        }.onFailure { error ->
+            Timber.w(error, "Failed to resolve Spotify canvas for %s", mediaMetadata.id)
+        }.getOrNull()
     }
     return media
 }
@@ -302,10 +306,10 @@ private fun normalizeRawSpDc(input: String): String? =
     input
         .takeUnless {
             it.contains(';') ||
-                it.contains('\n') ||
-                it.contains('\r') ||
-                it.contains(' ') ||
-                it.contains('=')
+                    it.contains('\n') ||
+                    it.contains('\r') ||
+                    it.contains(' ') ||
+                    it.contains('=')
         }?.trim()
         ?.trim('"')
         ?.takeIf { it.isNotBlank() }
@@ -340,8 +344,8 @@ private fun parseCookiePairs(input: String): List<SpotifyCookiePair> {
                 value = value,
             ).takeIf {
                 it.name.matches(SpotifyCookieNameRegex) &&
-                    it.name.lowercase() !in CookieAttributeNames &&
-                    it.value.isNotBlank()
+                        it.name.lowercase() !in CookieAttributeNames &&
+                        it.value.isNotBlank()
             }
         }
 }
@@ -354,13 +358,13 @@ object SpotifyCanvasClient {
     private const val DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
     private const val DEVICE_SCOPE =
         "app-remote-control,playlist-modify,playlist-modify-private,playlist-modify-public," +
-            "playlist-read,playlist-read-collaborative,playlist-read-private,streaming," +
-            "transfer-auth-session,ugc-image-upload,user-follow-modify,user-follow-read," +
-            "user-library-modify,user-library-read,user-modify,user-modify-playback-state," +
-            "user-modify-private,user-personalized,user-read-birthdate," +
-            "user-read-currently-playing,user-read-email,user-read-play-history," +
-            "user-read-playback-position,user-read-playback-state,user-read-private," +
-            "user-read-recently-played,user-top-read"
+                "playlist-read,playlist-read-collaborative,playlist-read-private,streaming," +
+                "transfer-auth-session,ugc-image-upload,user-follow-modify,user-follow-read," +
+                "user-library-modify,user-library-read,user-modify,user-modify-playback-state," +
+                "user-modify-private,user-personalized,user-read-birthdate," +
+                "user-read-currently-playing,user-read-email,user-read-play-history," +
+                "user-read-playback-position,user-read-playback-state,user-read-private," +
+                "user-read-recently-played,user-top-read"
 
     private const val SERVER_TIME_URL = "https://open.spotify.com/api/server-time"
     private const val WEB_TOKEN_URL = "https://open.spotify.com/api/token"
@@ -1558,9 +1562,9 @@ object SpotifyCanvasClient {
             listeningHistoryDevice
                 ?.takeIf { device ->
                     device.cookieHash == cookieHash &&
-                        device.deviceName == deviceName &&
-                        !device.closed &&
-                        now - device.createdAtMs < SPOTIFY_HISTORY_DEVICE_TTL_MS
+                            device.deviceName == deviceName &&
+                            !device.closed &&
+                            now - device.createdAtMs < SPOTIFY_HISTORY_DEVICE_TTL_MS
                 }?.let { return@withLock it }
 
             listeningHistoryDevice?.close()
@@ -2454,7 +2458,7 @@ object SpotifyCanvasClient {
                     ?: "",
             explicit =
                 metadata?.spotifyExplicit() == true ||
-                    spotifyExplicit(),
+                        spotifyExplicit(),
         )
     }
 
@@ -2508,8 +2512,8 @@ object SpotifyCanvasClient {
 
     private fun JsonObject.spotifyExplicit(): Boolean =
         boolean("explicit") ||
-            boolean("is_explicit") ||
-            boolean("isExplicit")
+                boolean("is_explicit") ||
+                boolean("isExplicit")
 
     private fun String.spotifyImageUrlFromText(): String? =
         SPOTIFY_IMAGE_URL_REGEX
@@ -2562,19 +2566,19 @@ object SpotifyCanvasClient {
         if (
             typeValues.any {
                 it.equals("ad", ignoreCase = true) ||
-                    it.equals("audio_ad", ignoreCase = true) ||
-                    it.contains("advert", ignoreCase = true)
+                        it.equals("audio_ad", ignoreCase = true) ||
+                        it.contains("advert", ignoreCase = true)
             }
         ) {
             return true
         }
 
         return boolean("is_ad") ||
-            boolean("isAd") ||
-            boolean("is_advertisement") ||
-            metadata?.boolean("is_ad") == true ||
-            metadata?.boolean("isAd") == true ||
-            metadata?.boolean("is_advertisement") == true
+                boolean("isAd") ||
+                boolean("is_advertisement") ||
+                metadata?.boolean("is_ad") == true ||
+                metadata?.boolean("isAd") == true ||
+                metadata?.boolean("is_advertisement") == true
     }
 
     private fun SpotifyListeningHistorySession.applyListeningHistoryPlaybackState(
@@ -3170,16 +3174,16 @@ object SpotifyCanvasClient {
 
         val rankedRecommendations =
             candidates
-            .values
-            .asSequence()
-            .sortedWith(
-                compareByDescending<RankedSpotifyRecommendation> { it.sources.size }
-                    .thenByDescending { it.score }
-                    .thenBy { it.firstIndex },
-            ).map { it.song }
-            .filterNot { it.id.spotifyTrackId() in skipTrackIds }
-            .distinctBy { it.id.spotifyTrackId() ?: it.id }
-            .toList()
+                .values
+                .asSequence()
+                .sortedWith(
+                    compareByDescending<RankedSpotifyRecommendation> { it.sources.size }
+                        .thenByDescending { it.score }
+                        .thenBy { it.firstIndex },
+                ).map { it.song }
+                .filterNot { it.id.spotifyTrackId() in skipTrackIds }
+                .distinctBy { it.id.spotifyTrackId() ?: it.id }
+                .toList()
 
         return (webPlayerRecommendations + rankedRecommendations)
             .asSequence()
@@ -3256,9 +3260,9 @@ object SpotifyCanvasClient {
             cachedTracks
                 .filter { track ->
                     track.song == null ||
-                        track.song.title.isBlank() ||
-                        track.song.thumbnail.isBlank() ||
-                        track.song.artists.isEmpty()
+                            track.song.title.isBlank() ||
+                            track.song.thumbnail.isBlank() ||
+                            track.song.artists.isEmpty()
                 }
                 .map { it.trackId }
         val hydrated =
@@ -3942,9 +3946,9 @@ object SpotifyCanvasClient {
             if (compressed != 0) return emptyList()
             val length =
                 ((bytes[index + 1].toInt() and 0xff) shl 24) or
-                    ((bytes[index + 2].toInt() and 0xff) shl 16) or
-                    ((bytes[index + 3].toInt() and 0xff) shl 8) or
-                    (bytes[index + 4].toInt() and 0xff)
+                        ((bytes[index + 2].toInt() and 0xff) shl 16) or
+                        ((bytes[index + 3].toInt() and 0xff) shl 8) or
+                        (bytes[index + 4].toInt() and 0xff)
             if (length < 0 || index + 5 + length > bytes.size) return emptyList()
             if (length > 0) {
                 parseProtoMessageOrNull(bytes.copyOfRange(index + 5, index + 5 + length))?.let(messages::add)
@@ -4203,18 +4207,18 @@ object SpotifyCanvasClient {
 
         val madeForYouItems: List<YTItem> =
             (
-                playlists.filter { it.isSpotifyMadeForYouPlaylist() } +
-                    featuredPlaylists
-            ).map { it as YTItem }
+                    playlists.filter { it.isSpotifyMadeForYouPlaylist() } +
+                            featuredPlaylists
+                    ).map { it as YTItem }
                 .distinctBy { it.id }
                 .ifEmpty { topTracks.map { it as YTItem } }
 
         val quickPicks =
             (
-                recentlyPlayed.take(4) +
-                    madeForYouItems.take(4) +
-                    topTracks.take(2)
-            ).distinctBy { it.id }
+                    recentlyPlayed.take(4) +
+                            madeForYouItems.take(4) +
+                            topTracks.take(2)
+                    ).distinctBy { it.id }
 
         sections.addSpotifyHomeSection("Good evening", quickPicks)
         sections.addSpotifyHomeSection("Made for you", madeForYouItems)
@@ -4244,17 +4248,17 @@ object SpotifyCanvasClient {
         val normalizedTitle = title.lowercase()
         val spotifyOwner = author?.name?.contains("spotify", ignoreCase = true) == true
         return spotifyOwner &&
-            listOf(
-                "daily mix",
-                "discover weekly",
-                "release radar",
-                "on repeat",
-                "repeat rewind",
-                "daylist",
-                "blend",
-                "radio",
-                "mix",
-            ).any(normalizedTitle::contains)
+                listOf(
+                    "daily mix",
+                    "discover weekly",
+                    "release radar",
+                    "on repeat",
+                    "repeat rewind",
+                    "daylist",
+                    "blend",
+                    "radio",
+                    "mix",
+                ).any(normalizedTitle::contains)
     }
 
     private suspend fun resolveHomePageFromLibraryGraphQl(normalizedCookie: String): HomePage {
@@ -4896,7 +4900,7 @@ object SpotifyCanvasClient {
                     }.mapNotNull { it.toSpotifyPlaylistSong() }
             val hasMore =
                 page.string("next") != null ||
-                    total?.let { expected -> expected > pageOffset + rawItems.size } == true
+                        total?.let { expected -> expected > pageOffset + rawItems.size } == true
             val nextOffset =
                 spotifyPagedNextOffset(
                     nextUrl = page.string("next"),
@@ -5746,8 +5750,8 @@ object SpotifyCanvasClient {
                 resolvedSongs.size
                     .takeIf { count ->
                         count > 0 &&
-                            count < PLAYLIST_TRACK_SAFETY_LIMIT &&
-                            (totalCount == null || count < totalCount)
+                                count < PLAYLIST_TRACK_SAFETY_LIMIT &&
+                                (totalCount == null || count < totalCount)
                     }?.toString(),
         )
     }
@@ -5766,7 +5770,7 @@ object SpotifyCanvasClient {
     private fun ExternalPlaylistPage.isSuspiciousThirtySongSpotifyPlaylistPage(): Boolean {
         val expectedSongs = playlist.songCountText.spotifySongCount()
         return songs.size == SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE &&
-            (expectedSongs == null || expectedSongs <= SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE)
+                (expectedSongs == null || expectedSongs <= SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE)
     }
 
     private fun String?.spotifySongCount(): Int? {
@@ -5814,17 +5818,17 @@ object SpotifyCanvasClient {
                             .mapNotNull { item ->
                                 val wrapper = item.obj ?: return@mapNotNull null
                                 (
-                                    wrapper
-                                        .obj("itemV2")
-                                        ?.obj("data")
-                                        ?: wrapper.obj("data")
-                                        ?: wrapper
-                                ).toSpotifyInitialStatePlaylistSong()
+                                        wrapper
+                                            .obj("itemV2")
+                                            ?.obj("data")
+                                            ?: wrapper.obj("data")
+                                            ?: wrapper
+                                        ).toSpotifyInitialStatePlaylistSong()
                             }
                     val totalTracks = playlist.obj("content")?.long("totalCount")?.toInt()
                     val shouldResolveFullTracks =
                         (totalTracks != null && songs.size < totalTracks) ||
-                            (totalTracks == null && songs.size <= SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE)
+                                (totalTracks == null && songs.size <= SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE)
                     val resolvedSongs =
                         if (shouldResolveFullTracks) {
                             runCatching {
@@ -5841,8 +5845,8 @@ object SpotifyCanvasClient {
                         resolvedSongs.size
                             .takeIf { count ->
                                 count > 0 &&
-                                    count < PLAYLIST_TRACK_SAFETY_LIMIT &&
-                                    (totalTracks == null || count < totalTracks)
+                                        count < PLAYLIST_TRACK_SAFETY_LIMIT &&
+                                        (totalTracks == null || count < totalTracks)
                             }
 
                     ExternalPlaylistPage(
@@ -6010,13 +6014,13 @@ object SpotifyCanvasClient {
 
     private fun SpotifyPlaylistTrackLoad.isCompleteSpotifyPlaylistTrackLoad(): Boolean =
         songs.isNotEmpty() &&
-            when {
-                songs.size == SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE &&
-                    (total == null || total <= SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE) -> false
-                total != null -> songs.size >= total || songs.size >= PLAYLIST_TRACK_SAFETY_LIMIT
-                songs.size <= SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE -> false
-                else -> true
-            }
+                when {
+                    songs.size == SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE &&
+                            (total == null || total <= SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE) -> false
+                    total != null -> songs.size >= total || songs.size >= PLAYLIST_TRACK_SAFETY_LIMIT
+                    songs.size <= SPOTIFY_SUSPICIOUS_PLAYLIST_PAGE_SIZE -> false
+                    else -> true
+                }
 
     private suspend fun resolvePlaylistTracksFromSpotifyWebApiWithToken(
         playlistId: String,
@@ -6238,41 +6242,41 @@ object SpotifyCanvasClient {
                     normalizedCookie = normalizedCookie,
                     operation = "Spotify playlist",
                 )
-                val songs =
-                    runCatching {
-                        resolvePlaylistTracksFromWebApi(playlistId, normalizedCookie)
-                    }.onFailure { error ->
-                        Timber.w(error, "Spotify playlist full-track fallback failed for %s", playlistId)
-                    }.getOrNull()
-                        ?.takeIf { it.isNotEmpty() }
-                        ?: root.obj("tracks")
-                            ?.array("items")
-                            .orEmpty()
-                            .mapNotNull { it.obj?.obj("track")?.toSpotifyPlaylistSong() }
-                val total = root.obj("tracks")?.long("total")?.toInt()
-                val nextOffset =
-                    songs.size
-                        .takeIf { count ->
-                            count > 0 &&
+            val songs =
+                runCatching {
+                    resolvePlaylistTracksFromWebApi(playlistId, normalizedCookie)
+                }.onFailure { error ->
+                    Timber.w(error, "Spotify playlist full-track fallback failed for %s", playlistId)
+                }.getOrNull()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: root.obj("tracks")
+                        ?.array("items")
+                        .orEmpty()
+                        .mapNotNull { it.obj?.obj("track")?.toSpotifyPlaylistSong() }
+            val total = root.obj("tracks")?.long("total")?.toInt()
+            val nextOffset =
+                songs.size
+                    .takeIf { count ->
+                        count > 0 &&
                                 count < PLAYLIST_TRACK_SAFETY_LIMIT &&
                                 (total == null || count < total)
-                        }
+                    }
 
-                ExternalPlaylistPage(
-                    playlist =
-                        PlaylistItem(
-                            id = "spotify:playlist:$playlistId",
-                            title = root.string("name") ?: "Spotify playlist",
-                            author = root.obj("owner")?.string("display_name")?.let { Artist(name = it, id = null) },
-                            songCountText = total?.let { "$it songs" },
-                            thumbnail = root.spotifyWebApiImageUrl() ?: songs.firstOrNull()?.thumbnail,
-                            playEndpoint = null,
-                            shuffleEndpoint = null,
-                            radioEndpoint = null,
-                        ),
-                    songs = songs,
-                    continuation = nextOffset?.toString(),
-                )
+            ExternalPlaylistPage(
+                playlist =
+                    PlaylistItem(
+                        id = "spotify:playlist:$playlistId",
+                        title = root.string("name") ?: "Spotify playlist",
+                        author = root.obj("owner")?.string("display_name")?.let { Artist(name = it, id = null) },
+                        songCountText = total?.let { "$it songs" },
+                        thumbnail = root.spotifyWebApiImageUrl() ?: songs.firstOrNull()?.thumbnail,
+                        playEndpoint = null,
+                        shuffleEndpoint = null,
+                        radioEndpoint = null,
+                    ),
+                songs = songs,
+                continuation = nextOffset?.toString(),
+            )
         }
     }
 
@@ -6391,33 +6395,44 @@ object SpotifyCanvasClient {
                     operation = "canvas",
                     variables =
                         buildJsonObject {
-                            put("uri", trackUri)
+                            put("trackUri", JsonPrimitive(trackUri))
                         },
                     cookie = cookie,
                     tokenProvider = ::ensureWebToken,
                 )
             }.onFailure { error ->
                 Timber.w(error, "Spotify canvas Web token lookup failed for %s; retrying device token", trackUri)
-            }.getOrElse {
+            }.recoverCatching {
                 postGraphQl<CanvasResponse>(
                     operation = "canvas",
                     variables =
                         buildJsonObject {
-                            put("uri", trackUri)
+                            put("trackUri", JsonPrimitive(trackUri))
                         },
                     cookie = cookie,
                     tokenProvider = ::ensureToken,
                 )
-            }
+            }.onFailure { error ->
+                // Track has no canvas (or Spotify rejected the query, e.g. "missing variable $trackUri").
+                // Cache the miss and fall through to null instead of crashing the caller.
+                Timber.w(error, "Spotify canvas lookup failed for %s; treating as no canvas available", trackUri)
+                canvasUrlCache[trackUri] = CachedString("", now)
+            }.getOrNull()
 
         val canvasUrl =
-            response.data
-                ?.trackUnion
-                ?.canvas
-                ?.takeIf { it.type.orEmpty().startsWith("VIDEO", ignoreCase = true) }
-                ?.url
-                ?.takeIf { it.isNotBlank() }
-                ?.takeIf(::isUsableSpotifyCanvasUrl)
+            response?.let { canvasResponse ->
+                runCatching {
+                    canvasResponse.data
+                        ?.trackUnion
+                        ?.canvas
+                        ?.takeIf { it.type.orEmpty().startsWith("VIDEO", ignoreCase = true) }
+                        ?.url
+                        ?.takeIf { it.isNotBlank() }
+                        ?.takeIf(::isUsableSpotifyCanvasUrl)
+                }.onFailure { error ->
+                    Timber.w(error, "Failed to parse Spotify canvas response for %s", trackUri)
+                }.getOrNull()
+            }
 
         canvasUrlCache[trackUri] = CachedString(canvasUrl.orEmpty(), now)
         return canvasUrl
@@ -6550,8 +6565,8 @@ object SpotifyCanvasClient {
             return false
         }
         return "canvaz.scdn.co" in lower ||
-            lower.substringBefore('?').endsWith(".mp4") ||
-            ".cnvs." in lower
+                lower.substringBefore('?').endsWith(".mp4") ||
+                ".cnvs." in lower
     }
 
     private suspend fun resolveAudioFeatures(
@@ -6832,7 +6847,7 @@ object SpotifyCanvasClient {
 
             val resolved =
                 runCatching {
-                loadCurrentGraphQlHashes(setOf(hashOperation))[hashOperation]
+                    loadCurrentGraphQlHashes(setOf(hashOperation))[hashOperation]
                 }.onFailure { error ->
                     Timber.w(error, "Spotify GraphQL hash resolver failed for %s", hashOperation)
                 }.getOrNull()
@@ -6851,7 +6866,7 @@ object SpotifyCanvasClient {
         when (operation) {
             "fetchPlaylistWithGatedEntityRelations",
             "fetchPlaylistContentsWithGatedEntityRelations",
-            -> "fetchPlaylist"
+                -> "fetchPlaylist"
             else -> operation
         }
 
@@ -7441,9 +7456,9 @@ object SpotifyCanvasClient {
         val offset = hash.last().toInt() and 0x0f
         val binary =
             ((hash[offset].toInt() and 0x7f) shl 24) or
-                ((hash[offset + 1].toInt() and 0xff) shl 16) or
-                ((hash[offset + 2].toInt() and 0xff) shl 8) or
-                (hash[offset + 3].toInt() and 0xff)
+                    ((hash[offset + 1].toInt() and 0xff) shl 16) or
+                    ((hash[offset + 2].toInt() and 0xff) shl 8) or
+                    (hash[offset + 3].toInt() and 0xff)
         return (binary % 1_000_000).toString().padStart(6, '0')
     }
 
@@ -8210,9 +8225,9 @@ object SpotifyCanvasClient {
         val albumObject = obj("albumOfTrack") ?: obj("album")
         val artists =
             (
-                obj("artists")?.array("items")
-                    ?: array("artists")
-            )
+                    obj("artists")?.array("items")
+                        ?: array("artists")
+                    )
                 .orEmpty()
                 .mapNotNull { artist ->
                     val data = artist.obj?.obj("data") ?: artist.obj ?: return@mapNotNull null
@@ -8252,7 +8267,7 @@ object SpotifyCanvasClient {
                 obj("contentRating")
                     ?.toString()
                     ?.contains("EXPLICIT", ignoreCase = true) == true ||
-                    boolean("explicit"),
+                        boolean("explicit"),
         )
     }
 
@@ -8274,13 +8289,13 @@ object SpotifyCanvasClient {
             .mapNotNull { item ->
                 val root = item.obj ?: return@mapNotNull null
                 (
-                    root.obj("track")
-                        ?: root.obj("item")
-                        ?: root.obj("entity")
-                        ?: root.obj("track_metadata")
-                        ?: root.obj("metadata")
-                        ?: root
-                ).spotifyWrappedData()?.toSpotifyMobilePlaylistSong(root)
+                        root.obj("track")
+                            ?: root.obj("item")
+                            ?: root.obj("entity")
+                            ?: root.obj("track_metadata")
+                            ?: root.obj("metadata")
+                            ?: root
+                        ).spotifyWrappedData()?.toSpotifyMobilePlaylistSong(root)
             }
 
     private fun JsonObject.toSpotifyMobilePlaylistSong(wrapper: JsonObject? = null): SongItem? {
@@ -8327,8 +8342,8 @@ object SpotifyCanvasClient {
                     ?: "",
             explicit =
                 track.boolean("explicit") ||
-                    wrapper?.boolean("explicit") == true ||
-                    track.obj("contentRating")?.toString()?.contains("EXPLICIT", ignoreCase = true) == true,
+                        wrapper?.boolean("explicit") == true ||
+                        track.obj("contentRating")?.toString()?.contains("EXPLICIT", ignoreCase = true) == true,
         )
     }
 
@@ -8549,18 +8564,18 @@ object SpotifyCanvasClient {
         val hasTitle = string("name") != null || string("title") != null || wrapper?.string("name") != null
         val hasArtists =
             obj("artists") != null ||
-                array("artists") != null ||
-                obj("artist") != null ||
-                string("artist") != null ||
-                wrapper?.obj("artists") != null ||
-                wrapper?.array("artists") != null
+                    array("artists") != null ||
+                    obj("artist") != null ||
+                    string("artist") != null ||
+                    wrapper?.obj("artists") != null ||
+                    wrapper?.array("artists") != null
         val hasTrackShape =
             obj("album") != null ||
-                obj("albumOfTrack") != null ||
-                long("duration_ms") != null ||
-                long("durationMs") != null ||
-                long("length_ms") != null ||
-                obj("duration") != null
+                    obj("albumOfTrack") != null ||
+                    long("duration_ms") != null ||
+                    long("durationMs") != null ||
+                    long("length_ms") != null ||
+                    obj("duration") != null
 
         return hasTitle && hasArtists && hasTrackShape
     }
@@ -8568,10 +8583,10 @@ object SpotifyCanvasClient {
     private fun JsonObject.spotifyAnyArtists(): List<Artist> {
         val fromArray =
             (
-                obj("artists")?.array("items")
-                    ?: array("artists")
-                    ?: obj("artist")?.array("items")
-            ).orEmpty()
+                    obj("artists")?.array("items")
+                        ?: array("artists")
+                        ?: obj("artist")?.array("items")
+                    ).orEmpty()
                 .mapNotNull { artist ->
                     val data = artist.obj?.obj("data") ?: artist.obj
                     val name =
@@ -8890,7 +8905,7 @@ object SpotifyCanvasClient {
                                 parseCasitaArtistMetadata(uri, bytes)
                             extensionKind == 11 || extensionKind == 12 -> null
                             uri.spotifyHomeType() == "playlist" ||
-                                typeUrl.contains("PlaylistMetadata", ignoreCase = true) ->
+                                    typeUrl.contains("PlaylistMetadata", ignoreCase = true) ->
                                 parseCasitaPlaylistMetadata(uri, bytes)
                             else -> parseGenericCasitaMetadata(uri, bytes)
                         } ?: return@forEach
@@ -9016,7 +9031,7 @@ object SpotifyCanvasClient {
             texts
                 .firstOrNull { text ->
                     !text.equals(type, ignoreCase = true) &&
-                        !text.equals("spotify", ignoreCase = true)
+                            !text.equals("spotify", ignoreCase = true)
                 } ?: return null
         return SpotifyCasitaEntity(
             uri = uri,
@@ -9041,9 +9056,9 @@ object SpotifyCanvasClient {
         val uri = message.firstBytes(1)?.spotifyGidUri("track") ?: fallbackUri
         val explicit =
             message.bool(9) ||
-                message.messages(25)
-                    .flatMap { it.strings(2) }
-                    .any { it.contains("explicit", ignoreCase = true) || it.equals("E", ignoreCase = true) }
+                    message.messages(25)
+                        .flatMap { it.strings(2) }
+                        .any { it.contains("explicit", ignoreCase = true) || it.equals("E", ignoreCase = true) }
 
         return SpotifyCasitaEntity(
             uri = uri,
@@ -9142,8 +9157,8 @@ object SpotifyCanvasClient {
         val title =
             strings.firstOrNull { text ->
                 isUsableCasitaText(text) &&
-                    text.spotifyCanonicalHomeUri() == null &&
-                    !text.startsWith("type.googleapis.com/", ignoreCase = true)
+                        text.spotifyCanonicalHomeUri() == null &&
+                        !text.startsWith("type.googleapis.com/", ignoreCase = true)
             } ?: return null
         val thumbnail =
             strings
@@ -9203,7 +9218,7 @@ object SpotifyCanvasClient {
                 )
             "playlist",
             "collection",
-            ->
+                ->
                 PlaylistItem(
                     id = canonicalUri,
                     title = title,
@@ -9334,7 +9349,7 @@ object SpotifyCanvasClient {
         val trimmed = trim()
         return when {
             trimmed.startsWith("https://", ignoreCase = true) ||
-                trimmed.startsWith("http://", ignoreCase = true) -> trimmed
+                    trimmed.startsWith("http://", ignoreCase = true) -> trimmed
             trimmed.startsWith("spotify:image:", ignoreCase = true) ->
                 SPOTIFY_IMAGE_CDN_URL + trimmed.substringAfterLast(':')
             else -> null
@@ -9359,12 +9374,12 @@ object SpotifyCanvasClient {
     private fun isUsableCasitaText(text: String): Boolean {
         val trimmed = text.trim()
         return trimmed.length in 2..90 &&
-            trimmed.spotifyCanonicalHomeUri() == null &&
-            trimmed.spotifyImageUrlOrNull() == null &&
-            !trimmed.contains('\u0000') &&
-            !trimmed.startsWith("http", ignoreCase = true) &&
-            !trimmed.startsWith("type.googleapis.com/", ignoreCase = true) &&
-            !trimmed.matches(Regex("""^[A-Za-z0-9_-]{16,}$"""))
+                trimmed.spotifyCanonicalHomeUri() == null &&
+                trimmed.spotifyImageUrlOrNull() == null &&
+                !trimmed.contains('\u0000') &&
+                !trimmed.startsWith("http", ignoreCase = true) &&
+                !trimmed.startsWith("type.googleapis.com/", ignoreCase = true) &&
+                !trimmed.matches(Regex("""^[A-Za-z0-9_-]{16,}$"""))
     }
 
     private fun ByteArray.spotifyGidUri(type: String): String? =
@@ -9400,9 +9415,9 @@ object SpotifyCanvasClient {
         return value.takeIf { text ->
             text.all { char ->
                 char == '\n' ||
-                    char == '\r' ||
-                    char == '\t' ||
-                    char.code in 0x20..0xD7FF
+                        char == '\r' ||
+                        char == '\t' ||
+                        char.code in 0x20..0xD7FF
             }
         }
     }
@@ -9608,9 +9623,9 @@ object SpotifyCanvasClient {
 
     private fun JsonObject.spotifyGraphArtists(): List<Artist> =
         (
-            obj("artists")?.array("items")
-                ?: array("artists")
-        ).orEmpty()
+                obj("artists")?.array("items")
+                    ?: array("artists")
+                ).orEmpty()
             .mapNotNull { artist ->
                 val data = artist.obj?.obj("data") ?: artist.obj ?: return@mapNotNull null
                 val name =
@@ -9694,7 +9709,7 @@ object SpotifyCanvasClient {
     private fun List<PlaylistItem>.withoutLikedSongsDuplicate(): List<PlaylistItem> =
         filterNot { item ->
             item.id.equals("spotify:collection:tracks", ignoreCase = true) ||
-                item.title.equals("Liked Songs", ignoreCase = true)
+                    item.title.equals("Liked Songs", ignoreCase = true)
         }
 
     private fun JsonObject.spotifyEntityKey(): String =
@@ -9939,8 +9954,8 @@ private fun String.spotifyCollectionUri(): String? =
     trim()
         .takeIf {
             it.equals("spotify:collection:tracks", ignoreCase = true) ||
-                it.equals("collection:tracks", ignoreCase = true) ||
-                it.contains("open.spotify.com/collection/tracks", ignoreCase = true)
+                    it.equals("collection:tracks", ignoreCase = true) ||
+                    it.contains("open.spotify.com/collection/tracks", ignoreCase = true)
         }?.let { "spotify:collection:tracks" }
 
 private fun String.isSpotifyCollectionTracksUri(): Boolean =

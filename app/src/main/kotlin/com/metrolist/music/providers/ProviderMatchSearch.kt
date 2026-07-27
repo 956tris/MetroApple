@@ -201,7 +201,7 @@ object ProviderMatchSearch {
         val trackId =
             metadata.id.takeIf {
                 it.startsWith("spotify:track:", ignoreCase = true) ||
-                    it.contains("open.spotify.com/track/", ignoreCase = true)
+                        it.contains("open.spotify.com/track/", ignoreCase = true)
             } ?: return null
         val cookie = context.dataStore.get(SpotifyCookieKey, "").takeIf { it.isNotBlank() } ?: return null
         return SpotifyCanvasClient.resolveTrackIsrc(trackId, cookie)

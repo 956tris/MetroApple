@@ -1612,7 +1612,7 @@ fun BottomSheetPlayer(
                                             ImageRequest
                                                 .Builder(context)
                                                 .data(thumbnailUrl)
-                                                .size(100, 100)
+                                                .size(300, 300)
                                                 .allowHardware(false)
                                                 .build(),
                                         contentDescription = null,
@@ -1620,6 +1620,14 @@ fun BottomSheetPlayer(
                                         modifier =
                                             Modifier
                                                 .fillMaxSize()
+                                                .graphicsLayer {
+                                                    // Oversize before blurring so the softened edges
+                                                    // bleed past the visible bounds instead of clipping
+                                                    // — this is what removes the hard vignette edge and
+                                                    // makes the blur feel seamless (Apple Music-style).
+                                                    scaleX = 1.35f
+                                                    scaleY = 1.35f
+                                                }
                                                 .blur(if (useDarkTheme) 150.dp else 100.dp),
                                     )
                                     Box(

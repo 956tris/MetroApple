@@ -6,7 +6,9 @@
 package com.metrolist.music.ui.player
 
 import android.content.Context
+import android.graphics.Matrix
 import android.view.TextureView
+import android.view.View
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -693,7 +695,7 @@ private fun ThumbnailImage(
 }
 
 @Composable
-private fun CanvasVideo(
+fun CanvasVideo(
     canvasUrl: String,
     modifier: Modifier = Modifier,
 ) {
@@ -762,19 +764,72 @@ private fun CanvasVideo(
 
     AndroidView(
         factory = { ctx ->
-            TextureView(ctx)
+            TextureView(ctx).also { textureView ->
+                val listener = object : Player.Listener, View.OnLayoutChangeListener {
+                    private var videoWidth = 0
+                    private var videoHeight = 0
+
+                    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                        videoWidth = videoSize.width
+                        videoHeight = videoSize.height
+                        applyMatrix()
+                    }
+
+                    override fun onLayoutChange(
+                        v: View, l: Int, t: Int, r: Int, b: Int,
+                        ol: Int, ot: Int, or: Int, ob: Int
+                    ) {
+                        applyMatrix()
+                    }
+
+                    private fun applyMatrix() {
+                        if (videoWidth <= 0 || videoHeight <= 0) return
+                        val viewWidth = textureView.width.toFloat()
+                        val viewHeight = textureView.height.toFloat()
+                        if (viewWidth <= 0 || viewHeight <= 0) return
+
+                        val videoAspect = videoWidth.toFloat() / videoHeight
+                        val viewAspect = viewWidth / viewHeight
+
+                        val scaleX: Float
+                        val scaleY: Float
+
+                        if (videoAspect > viewAspect) {
+                            scaleX = videoAspect / viewAspect
+                            scaleY = 1f
+                        } else {
+                            scaleX = 1f
+                            scaleY = viewAspect / videoAspect
+                        }
+
+                        val matrix = Matrix()
+                        matrix.setScale(scaleX, scaleY, viewWidth / 2f, viewHeight / 2f)
+                        textureView.setTransform(matrix)
+                    }
+                }
+                textureView.addOnLayoutChangeListener(listener)
+                player.addListener(listener)
+                textureView.tag = listener
+            }
         },
         update = { textureView ->
             player.setVideoTextureView(textureView)
         },
-        onRelease = {
-            player.clearVideoTextureView(it)
+        onRelease = { textureView ->
+            player.clearVideoTextureView(textureView)
+            val listener = textureView.tag as? Player.Listener
+            if (listener != null) {
+                player.removeListener(listener)
+            }
+            if (listener is View.OnLayoutChangeListener) {
+                textureView.removeOnLayoutChangeListener(listener)
+            }
         },
-        modifier = modifier,
+        modifier = modifier.fillMaxSize(),
     )
 }
 
-private fun createCanvasTrackSelector(context: Context): DefaultTrackSelector =
+fun createCanvasTrackSelector(context: Context): DefaultTrackSelector =
     DefaultTrackSelector(context).apply {
         setParameters(
             buildUponParameters()
