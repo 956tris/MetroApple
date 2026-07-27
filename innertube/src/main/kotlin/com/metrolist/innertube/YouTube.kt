@@ -997,7 +997,7 @@ object YouTube {
                                 ?.firstOrNull()
                                 ?.menuNavigationItemRenderer
                                 ?.navigationEndpoint
-                                ?.watchPlaylistEndpoint!!,
+                                ?.watchPlaylistEndpoint,
                         radioEndpoint =
                             header.buttons
                                 .getOrNull(2)
