@@ -24,6 +24,7 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.palette.graphics.Palette
@@ -90,7 +91,7 @@ class CanvasWallpaperService : WallpaperService() {
 
         private val scrimPaint = Paint().apply {
             color = Color.BLACK
-            alpha = 100 
+            alpha = 100
         }
         private val backgroundPaint = Paint(Paint.FILTER_BITMAP_FLAG)
 
@@ -122,7 +123,15 @@ class CanvasWallpaperService : WallpaperService() {
                 registerReceiver(receiver, filter)
             }
             initializePlayer()
-            
+            // onSurfaceCreated can fire before onCreate finishes (the Engine registers
+            // as the SurfaceHolder.Callback before onCreate runs), in which case
+            // player is still null there and the attach silently no-ops — leaving
+            // the player permanently unattached to any surface (black screen forever).
+            // Attach directly here using the holder onCreate already gives us, so the
+            // player always has a surface regardless of callback ordering.
+            hasSurface = true
+            player?.setVideoSurfaceHolder(surfaceHolder)
+
             // Request initial update from MusicService
             sendBroadcast(Intent(ACTION_REQUEST_UPDATE))
         }
@@ -203,7 +212,11 @@ class CanvasWallpaperService : WallpaperService() {
             val mediaSourceFactory = DefaultMediaSourceFactory(this@CanvasWallpaperService)
                 .setDataSourceFactory(dataSourceFactory)
 
+            val renderersFactory = DefaultRenderersFactory(this@CanvasWallpaperService)
+                .setEnableDecoderFallback(true)
+
             player = ExoPlayer.Builder(this@CanvasWallpaperService)
+                .setRenderersFactory(renderersFactory)
                 .setMediaSourceFactory(mediaSourceFactory)
                 .build()
                 .apply {
@@ -288,16 +301,16 @@ class CanvasWallpaperService : WallpaperService() {
 
             Palette.from(bitmap).generate { palette ->
                 if (palette == null) return@generate
-                
-                val selectedSwatch = palette.darkVibrantSwatch 
-                    ?: palette.darkMutedSwatch 
-                    ?: palette.vibrantSwatch 
-                    ?: palette.mutedSwatch 
+
+                val selectedSwatch = palette.darkVibrantSwatch
+                    ?: palette.darkMutedSwatch
+                    ?: palette.vibrantSwatch
+                    ?: palette.mutedSwatch
                     ?: palette.dominantSwatch
-                
+
                 baseColor = selectedSwatch?.rgb ?: Color.BLACK
                 fadeTargetColor = if (isDark(baseColor)) Color.BLACK else 0xFF121212.toInt()
-                
+
                 createFadeGradient()
                 if (!isVideoRendered) {
                     drawFrame()
@@ -315,9 +328,9 @@ class CanvasWallpaperService : WallpaperService() {
 
         private fun createFadeGradient() {
             if (surfaceWidth <= 0 || surfaceHeight <= 0) return
-            
+
             val startY = surfaceHeight * 0.6f
-            
+
             fadeGradient = LinearGradient(
                 0f, startY, 0f, surfaceHeight.toFloat(),
                 intArrayOf(Color.TRANSPARENT, baseColor, fadeTargetColor),
@@ -328,7 +341,7 @@ class CanvasWallpaperService : WallpaperService() {
 
         private fun drawFrame() {
             if (!hasSurface || !isVisible || isVideoRendered) return
-            
+
             val holder = surfaceHolder
             val canvas = try {
                 holder.lockCanvas()
@@ -340,7 +353,7 @@ class CanvasWallpaperService : WallpaperService() {
                 artworkBitmap?.let { bitmap ->
                     val bitmapWidth = bitmap.width
                     val bitmapHeight = bitmap.height
-                    
+
                     val scale: Float
                     var dx = 0f
                     var dy = 0f
