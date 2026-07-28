@@ -1299,10 +1299,11 @@ class MusicService :
             }
 
         combine(
-            currentTidalCanvasUrl,
+            currentAppleCanvasUrl,
+            currentAppleTallCanvasUrl,
             currentPreferredArtworkUrl,
-        ) { tidalCanvas, artwork ->
-            listOf(tidalCanvas, artwork)
+        ) { appleSquare, appleTall, artwork ->
+            listOf(appleSquare, appleTall, artwork)
         }.debounce(300)
             .distinctUntilChanged()
             .collect(scope) {
