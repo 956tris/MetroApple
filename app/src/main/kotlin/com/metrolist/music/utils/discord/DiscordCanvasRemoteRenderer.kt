@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 
 object DiscordCanvasRemoteRenderer {
     private const val TAG = "DiscordCanvasRemote"
-    private const val BASE_URL = "https://tris4520-metrofuse.hf.space"
+    private const val BASE_URL = "https://yesitworkssomehow-funi-lyric-api.hf.space"
     private val hlsResolutionRegex = Regex("""RESOLUTION=(\d+)x(\d+)""")
     private val hlsBandwidthRegex = Regex("""(?:AVERAGE-BANDWIDTH|BANDWIDTH)=(\d+)""")
 
@@ -87,6 +87,7 @@ object DiscordCanvasRemoteRenderer {
                 .addQueryParameter("size", targetSize.toString())
                 .addQueryParameter("fps", quality.fps.toString())
                 .addQueryParameter("seconds", quality.seconds.toString())
+                .addQueryParameter("format", "webp")
                 .build()
 
         return runCatching {
@@ -131,10 +132,10 @@ object DiscordCanvasRemoteRenderer {
         body: String,
     ): Boolean =
         responseCode in setOf(400, 413, 422, 500, 502, 503, 504) ||
-            body.contains("too large", ignoreCase = true) ||
-            body.contains("less than or equal", ignoreCase = true) ||
-            body.contains("validation", ignoreCase = true) ||
-            body.contains("memory", ignoreCase = true)
+                body.contains("too large", ignoreCase = true) ||
+                body.contains("less than or equal", ignoreCase = true) ||
+                body.contains("validation", ignoreCase = true) ||
+                body.contains("memory", ignoreCase = true)
 
     private data class HlsVariant(
         val url: String,
