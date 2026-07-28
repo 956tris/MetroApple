@@ -770,7 +770,6 @@ object SpotifyCanvasClient {
             val trackUri = trackUriOrId.spotifyTrackUri() ?: return@withContext false
             val normalizedCookie = normalizeSpotifyCookieInput(cookie) ?: return@withContext false
             val operation = if (liked) "addToLibrary" else "removeFromLibrary"
-            val hash = "7c5a69420e2bfae3da5cc4e14cbc8bb3f6090f80afc00ffc179177f19be3f33d"
             val variables = buildJsonObject {
                 putJsonArray("libraryItemUris") {
                     add(trackUri)
@@ -781,7 +780,6 @@ object SpotifyCanvasClient {
                     operation = operation,
                     variables = variables,
                     cookie = normalizedCookie,
-                    hashOverride = hash,
                 )
                 true
             }.onFailure { error ->
@@ -6606,6 +6604,7 @@ object SpotifyCanvasClient {
             "fetchPlaylistWithGatedEntityRelations",
             "fetchPlaylistContentsWithGatedEntityRelations",
             -> "fetchPlaylist"
+            "removeFromLibrary" -> "addToLibrary"
             else -> operation
         }
 
