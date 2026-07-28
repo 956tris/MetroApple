@@ -35,9 +35,13 @@ object IsrcResolver {
 
     private data class CacheKey(val song: String, val artist: String, val durationSeconds: Int?)
 
-    // Positive + negative results both cached; null means "resolution was
-    // attempted and failed", distinct from "never attempted" (absent key).
-    private val cache = ConcurrentHashMap<CacheKey, String?>()
+    // Positive + negative results both cached; NEGATIVE_RESULT means
+    // "resolution was attempted and failed", distinct from "never attempted"
+    // (absent key). ConcurrentHashMap disallows null values at the JVM
+    // level (throws NPE from putVal), so a sentinel is used instead of null
+    // even though the value type here is nullable.
+    private const val NEGATIVE_RESULT = "\u0000NEGATIVE_RESULT\u0000"
+    private val cache = ConcurrentHashMap<CacheKey, String>()
 
     /**
      * Returns a normalized, structurally valid ISRC, or null if none could
@@ -56,8 +60,7 @@ object IsrcResolver {
         if (song.isBlank() || artist.isBlank()) return@withContext null
 
         val key = CacheKey(song.trim().lowercase(), artist.trim().lowercase(), durationSeconds)
-        cache[key]?.let { return@withContext it }
-        if (cache.containsKey(key)) return@withContext null // cached negative
+        cache[key]?.let { return@withContext if (it == NEGATIVE_RESULT) null else it }
 
         val resolved = runCatching {
             coroutineScope {
@@ -67,7 +70,7 @@ object IsrcResolver {
             }
         }.getOrNull()
 
-        cache[key] = resolved
+        cache[key] = resolved ?: NEGATIVE_RESULT
         resolved
     }
 
