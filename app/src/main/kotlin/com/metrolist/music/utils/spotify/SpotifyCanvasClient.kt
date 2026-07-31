@@ -49,6 +49,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
@@ -66,10 +71,13 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.longOrNull
 import okhttp3.Cookie
 import okhttp3.FormBody
@@ -213,6 +221,48 @@ private data class SpotifyArtistPageMetadata(
     val imageUrl: String?,
     val statsText: String?,
 )
+
+data class SpotifyArtistOverview(
+    val popularReleases: List<AlbumItem>,
+    val relatedArtists: List<ArtistItem>,
+    val featuring: List<AlbumItem>,
+    val artistPlaylists: List<PlaylistItem>,
+    val concerts: List<SpotifyConcert> = emptyList(),
+    val merch: List<SpotifyMerchItem> = emptyList(),
+    val biography: String? = null,
+    val discoveredOn: List<PlaylistItem> = emptyList(),
+    val featuringPlaylists: List<PlaylistItem> = emptyList(),
+)
+
+data class SpotifyConcert(
+    val title: String,
+    val city: String?,
+    val venue: String?,
+    val startDateIso: String?,
+    val uri: String,
+)
+
+data class SpotifyMerchItem(
+    val name: String,
+    val price: String?,
+    val imageUrl: String?,
+    val url: String,
+)
+
+data class SpotifyNewRelease(
+    val album: AlbumItem,
+    val artistName: String,
+    val releaseEpochDay: Long,
+)
+
+data class SpotifyLyricsResult(
+    val lrc: String,
+    val syncType: String,
+)
+
+private const val NEW_RELEASES_WINDOW_DAYS = 30L
+private const val NEW_RELEASES_MAX_ARTISTS = 200
+private const val NEW_RELEASES_CONCURRENCY = 8
 
 private data class RankedSpotifyRecommendation(
     val song: SongItem,
@@ -526,6 +576,118 @@ object SpotifyCanvasClient {
 
     suspend fun resolveSearch(query: String, cookie: String): String? {
         return searchTracks(query, cookie).firstOrNull()?.uri
+    }
+
+    /**
+     * Spotify's own synced lyrics (color-lyrics endpoint), resolved via the same
+     * scored track-matching used for canvas (Expectation/scoreTrack/resolveTrackCandidates)
+     * so a low-confidence match returns null instead of the wrong song's lyrics.
+     */
+    suspend fun resolveLyrics(
+        title: String,
+        artist: String,
+        durationSec: Int,
+        cookie: String,
+    ): SpotifyLyricsResult? {
+        val normalizedCookie = normalizeSpotifyCookieInput(cookie) ?: return null
+        return runCatching {
+            resolveLyricsInternal(title, artist, durationSec, normalizedCookie)
+        }.onFailure { error ->
+            Timber.w(error, "Spotify lyrics resolution failed for %s - %s", title, artist)
+        }.getOrNull()
+    }
+
+    private suspend fun resolveLyricsInternal(
+        title: String,
+        artist: String,
+        durationSec: Int,
+        normalizedCookie: String,
+    ): SpotifyLyricsResult? {
+        val expectation =
+            Expectation(
+                title = title,
+                artists = listOf(artist),
+                album = null,
+                durationMs = durationSec.takeIf { it > 0 }?.times(1000L),
+                isrc = null,
+            )
+        val candidates = resolveTrackCandidates(expectation, normalizedCookie)
+        val best =
+            candidates
+                .map { it to scoreTrack(it, expectation) }
+                .maxByOrNull { it.second }
+                ?: return null
+        if (best.second < 55) return null
+        val trackUri = best.first.uri ?: return null
+        val trackId = spotifyEntityId(trackUri, "track") ?: return null
+
+        val root = fetchColorLyrics(trackId, normalizedCookie) ?: return null
+        val lyricsObj = root.obj("lyrics") ?: return null
+        val syncType = lyricsObj.string("syncType") ?: "UNSYNCED"
+        val lines = lyricsObj.array("lines").orEmpty()
+        if (lines.isEmpty()) return null
+
+        val lrc =
+            buildString {
+                lines.forEach { lineElement ->
+                    val line = lineElement.obj ?: return@forEach
+                    val words = line.string("words") ?: return@forEach
+                    if (syncType == "LINE_SYNCED") {
+                        val startMs = line.string("startTimeMs")?.toLongOrNull() ?: return@forEach
+                        append(spotifyLrcTimestamp(startMs))
+                    }
+                    append(words)
+                    append('\n')
+                }
+            }.trimEnd()
+
+        if (lrc.isBlank()) return null
+        return SpotifyLyricsResult(lrc = lrc, syncType = syncType)
+    }
+
+    private suspend fun fetchColorLyrics(
+        trackId: String,
+        normalizedCookie: String,
+    ): JsonObject? {
+        val url =
+            "https://spclient.wg.spotify.com/color-lyrics/v2/track/$trackId"
+                .toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("format", "json")
+                .addQueryParameter("vocalRemoval", "false")
+                .addQueryParameter("market", "from_token")
+                .build()
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                val webToken = ensureWebToken(normalizedCookie)
+                val request =
+                    Request
+                        .Builder()
+                        .url(url)
+                        .header("User-Agent", DESKTOP_WEB_USER_AGENT)
+                        .header("Accept", "application/json")
+                        .header("App-Platform", "WebPlayer")
+                        .header("Referer", WEB_REFERER)
+                        .header("Origin", WEB_ORIGIN)
+                        .header("Cookie", normalizedCookie)
+                        .header("Authorization", "Bearer $webToken")
+                        .get()
+                        .build()
+
+                client.newCall(request).execute().use { response ->
+                    json.parseToJsonElement(response.requireBody("Spotify lyrics")).jsonObject
+                }
+            }
+        }.getOrNull()
+    }
+
+    /** Formats a millisecond offset as an `[mm:ss.xx]` LRC timestamp. */
+    private fun spotifyLrcTimestamp(startMs: Long): String {
+        val totalCentis = startMs / 10
+        val minutes = totalCentis / 6000
+        val seconds = (totalCentis / 100) % 60
+        val centis = totalCentis % 100
+        return "[%02d:%02d.%02d]".format(minutes, seconds, centis)
     }
 
     suspend fun resolveSearchSummaryPage(
@@ -904,8 +1066,33 @@ object SpotifyCanvasClient {
         liked: Boolean,
     ): Boolean =
         withContext(Dispatchers.IO) {
-            val trackId = trackUriOrId.spotifyTrackId() ?: return@withContext false
+            val trackUri = trackUriOrId.spotifyTrackUri() ?: return@withContext false
             val normalizedCookie = normalizeSpotifyCookieInput(cookie) ?: return@withContext false
+            val operation = if (liked) "addToLibrary" else "removeFromLibrary"
+            val variables = buildJsonObject {
+                putJsonArray("libraryItemUris") {
+                    add(trackUri)
+                }
+            }
+            val gqlSuccess = runCatching {
+                val result =
+                    postGraphQl<JsonObject>(
+                        operation = operation,
+                        variables = variables,
+                        cookie = normalizedCookie,
+                    )
+                val errors = result["errors"]?.jsonArray
+                if (!errors.isNullOrEmpty()) {
+                    error("Spotify GraphQL $operation returned errors: $errors")
+                }
+                true
+            }.onFailure { error ->
+                Timber.w(error, "Spotify GraphQL %s failed for %s", operation, trackUri)
+            }.getOrDefault(false)
+
+            if (gqlSuccess) return@withContext true
+
+            val trackId = trackUriOrId.spotifyTrackId() ?: return@withContext false
             val webToken =
                 runCatching { ensureWebToken(normalizedCookie) }
                     .onFailure { error -> Timber.w(error, "Spotify like token refresh failed") }
@@ -4359,6 +4546,14 @@ object SpotifyCanvasClient {
             Timber.w(error, "Spotify internal artists failed")
         }
 
+        runCatching {
+            resolveNewReleasesForFollowedArtists(normalizedCookie).map { it.album }
+        }.onSuccess { items ->
+            sections.addSpotifyHomeSection("New releases", items)
+        }.onFailure { error ->
+            Timber.w(error, "Spotify new releases failed")
+        }
+
         return HomePage(
             chips = null,
             sections = sections,
@@ -4846,6 +5041,363 @@ object SpotifyCanvasClient {
                 Timber.w(error, "Spotify artist batch Web API load failed for %s", normalizedArtistId)
             }.getOrNull()
     }
+
+    /**
+     * Full artist overview: albums/singles (popular releases), related
+     * artists ("Fans Also Like"), appears-on releases ("Featuring"), and
+     * artist-curated playlists — all from Spotify's own `queryArtistOverview`
+     * GraphQL operation. Falls back to null on any failure so callers can
+     * fall back to the existing lighter-weight [resolveArtist] page.
+     *
+     * No hashOverride is passed — the sha256Hash for this operation is
+     * resolved dynamically via [resolveGraphQlHash], same as every other
+     * non-hardcoded query in this client.
+     */
+    suspend fun resolveArtistOverview(
+        artistId: String,
+        cookie: String,
+    ): SpotifyArtistOverview? {
+        val normalizedCookie = normalizeSpotifyCookieInput(cookie) ?: return null
+        val normalizedArtistId = spotifyEntityId(artistId, "artist") ?: return null
+        return runCatching {
+            resolveArtistOverviewFromGraphQl(normalizedArtistId, normalizedCookie)
+        }.onFailure { error ->
+            Timber.w(error, "Spotify artist overview GraphQL load failed for %s", normalizedArtistId)
+        }.getOrNull()
+    }
+
+    private suspend fun resolveArtistOverviewFromGraphQl(
+        artistId: String,
+        normalizedCookie: String,
+    ): SpotifyArtistOverview? {
+        runCatching {
+            resolveArtistOverviewFromGraphQl(artistId, normalizedCookie, tokenProvider = ::ensureWebToken)
+        }.getOrNull()?.let { return it }
+
+        return runCatching {
+            resolveArtistOverviewFromGraphQl(artistId, normalizedCookie, tokenProvider = ::ensureToken)
+        }.getOrNull()
+    }
+
+    private suspend fun resolveArtistOverviewFromGraphQl(
+        artistId: String,
+        normalizedCookie: String,
+        tokenProvider: suspend (String) -> String,
+    ): SpotifyArtistOverview? =
+        withContext(Dispatchers.IO) {
+            val artistUri = "spotify:artist:$artistId"
+            val root =
+                postGraphQl<JsonObject>(
+                    operation = "queryArtistOverview",
+                    variables =
+                        buildJsonObject {
+                            put("uri", artistUri)
+                            put("locale", "")
+                            put("includePrerelease", true)
+                        },
+                    cookie = normalizedCookie,
+                    tokenProvider = tokenProvider,
+                )
+            val artistRoot = root.obj("data")?.obj("artistUnion") ?: return@withContext null
+            val discography = artistRoot.obj("discography")
+            val relatedContent = artistRoot.obj("relatedContent")
+
+            val popularReleases =
+                discography
+                    ?.obj("popularReleasesAlbums")
+                    ?.array("items")
+                    .orEmpty()
+                    .mapNotNull { it.obj?.toSpotifyReleaseAlbumItem() }
+
+            val relatedArtists =
+                relatedContent
+                    ?.obj("relatedArtists")
+                    ?.array("items")
+                    .orEmpty()
+                    .mapNotNull { it.obj?.toSpotifyRelatedArtistItem() }
+
+            val featuring =
+                relatedContent
+                    ?.obj("appearsOn")
+                    ?.array("items")
+                    .orEmpty()
+                    .flatMap { group ->
+                        group.obj
+                            ?.obj("releases")
+                            ?.array("items")
+                            .orEmpty()
+                    }
+                    .mapNotNull { it.obj?.toSpotifyReleaseAlbumItem() }
+                    .distinctBy { it.browseId }
+
+            val artistPlaylists =
+                artistRoot
+                    .obj("profile")
+                    ?.obj("playlistsV2")
+                    ?.array("items")
+                    .orEmpty()
+                    .mapNotNull { it.obj?.obj("data")?.toSpotifyOverviewPlaylistItem() }
+
+            val concerts =
+                artistRoot
+                    .obj("goods")
+                    ?.obj("concerts")
+                    ?.array("items")
+                    .orEmpty()
+                    .mapNotNull { it.obj?.obj("data")?.toSpotifyConcert() }
+
+            val merch =
+                artistRoot
+                    .obj("goods")
+                    ?.obj("merch")
+                    ?.array("items")
+                    .orEmpty()
+                    .mapNotNull { it.obj?.toSpotifyMerchItem() }
+
+            val biography = artistRoot.obj("profile")?.obj("biography")?.string("text")
+
+            val discoveredOn =
+                relatedContent
+                    ?.obj("discoveredOnV2")
+                    ?.array("items")
+                    .orEmpty()
+                    .mapNotNull { it.obj?.obj("data")?.toSpotifyOverviewPlaylistItem() }
+
+            val featuringPlaylists =
+                relatedContent
+                    ?.obj("featuringV2")
+                    ?.array("items")
+                    .orEmpty()
+                    .mapNotNull { it.obj?.obj("data")?.toSpotifyOverviewPlaylistItem() }
+
+            SpotifyArtistOverview(
+                popularReleases = popularReleases,
+                relatedArtists = relatedArtists,
+                featuring = featuring,
+                artistPlaylists = artistPlaylists,
+                concerts = concerts,
+                merch = merch,
+                biography = biography,
+                discoveredOn = discoveredOn,
+                featuringPlaylists = featuringPlaylists,
+            )
+        }
+
+    /** `goods.concerts.items[].data` — ConcertV2 shape. */
+    private fun JsonObject.toSpotifyConcert(): SpotifyConcert? {
+        val title = string("title") ?: return null
+        val uri = string("uri") ?: return null
+        return SpotifyConcert(
+            title = title,
+            city = obj("location")?.string("city"),
+            venue = obj("location")?.string("name"),
+            startDateIso = string("startDateIsoString"),
+            uri = uri,
+        )
+    }
+
+    /** `goods.merch.items[]` shape. */
+    private fun JsonObject.toSpotifyMerchItem(): SpotifyMerchItem? {
+        val name = string("nameV2") ?: return null
+        val shopUrl = string("url") ?: return null
+        return SpotifyMerchItem(
+            name = name,
+            price = string("price"),
+            imageUrl =
+                obj("image")
+                    ?.array("sources")
+                    ?.firstOrNull()
+                    ?.obj
+                    ?.string("url"),
+            url = shopUrl,
+        )
+    }
+
+    /**
+     * New releases (albums/singles) from the user's followed artists, within the
+     * last [NEW_RELEASES_WINDOW_DAYS] days, newest first. Entirely GraphQL:
+     * followed-artist list comes from the existing `libraryV3` operation, and
+     * each artist's discography comes from `queryArtistOverview` (same dynamic
+     * hash resolution as [resolveArtistOverview]) — no REST Web API calls.
+     */
+    suspend fun resolveNewReleasesForFollowedArtists(cookie: String): List<SpotifyNewRelease> {
+        val normalizedCookie = normalizeSpotifyCookieInput(cookie) ?: return emptyList()
+        return runCatching {
+            resolveNewReleasesForFollowedArtistsInternal(normalizedCookie)
+        }.onFailure { error ->
+            Timber.w(error, "Spotify new releases (followed artists) failed")
+        }.getOrNull().orEmpty()
+    }
+
+    private suspend fun resolveNewReleasesForFollowedArtistsInternal(
+        normalizedCookie: String,
+    ): List<SpotifyNewRelease> {
+        val followedArtistIds =
+            loadSpotifyLibraryV3Items(filter = "Artists", normalizedCookie = normalizedCookie)
+                .mapNotNull { item ->
+                    val rawId = item.string("id") ?: item.string("uri") ?: return@mapNotNull null
+                    spotifyEntityId(rawId, "artist")
+                }
+                .distinct()
+                .take(NEW_RELEASES_MAX_ARTISTS)
+
+        if (followedArtistIds.isEmpty()) return emptyList()
+
+        val cutoffEpochDay = (System.currentTimeMillis() / 86_400_000L) - NEW_RELEASES_WINDOW_DAYS
+        val semaphore = Semaphore(NEW_RELEASES_CONCURRENCY)
+
+        val releases =
+            coroutineScope {
+                followedArtistIds
+                    .map { artistId ->
+                        async(Dispatchers.IO) {
+                            semaphore.withPermit {
+                                runCatching {
+                                    fetchArtistDatedReleases(artistId, normalizedCookie)
+                                }.getOrNull().orEmpty()
+                            }
+                        }
+                    }.awaitAll()
+                    .flatten()
+            }
+
+        return releases
+            .filter { it.releaseEpochDay >= cutoffEpochDay }
+            .distinctBy { it.album.browseId }
+            .sortedByDescending { it.releaseEpochDay }
+    }
+
+    private suspend fun fetchArtistDatedReleases(
+        artistId: String,
+        normalizedCookie: String,
+    ): List<SpotifyNewRelease> {
+        runCatching {
+            fetchArtistDatedReleases(artistId, normalizedCookie, tokenProvider = ::ensureWebToken)
+        }.getOrNull()?.let { return it }
+
+        return runCatching {
+            fetchArtistDatedReleases(artistId, normalizedCookie, tokenProvider = ::ensureToken)
+        }.getOrNull().orEmpty()
+    }
+
+    private suspend fun fetchArtistDatedReleases(
+        artistId: String,
+        normalizedCookie: String,
+        tokenProvider: suspend (String) -> String,
+    ): List<SpotifyNewRelease> =
+        withContext(Dispatchers.IO) {
+            val artistUri = "spotify:artist:$artistId"
+            val root =
+                postGraphQl<JsonObject>(
+                    operation = "queryArtistOverview",
+                    variables =
+                        buildJsonObject {
+                            put("uri", artistUri)
+                            put("locale", "")
+                            put("includePrerelease", true)
+                        },
+                    cookie = normalizedCookie,
+                    tokenProvider = tokenProvider,
+                )
+            val artistRoot = root.obj("data")?.obj("artistUnion") ?: return@withContext emptyList()
+            val artistName = artistRoot.obj("profile")?.string("name") ?: return@withContext emptyList()
+            val discography = artistRoot.obj("discography") ?: return@withContext emptyList()
+
+            val albumGroups = discography.obj("albums")?.array("items").orEmpty()
+            val singleGroups = discography.obj("singles")?.array("items").orEmpty()
+
+            (albumGroups + singleGroups)
+                .mapNotNull { group ->
+                    group.obj
+                        ?.obj("releases")
+                        ?.array("items")
+                        ?.firstOrNull()
+                        ?.obj
+                }
+                .mapNotNull { release ->
+                    val album = release.toSpotifyReleaseAlbumItem() ?: return@mapNotNull null
+                    val epochDay = release.obj("date")?.spotifyReleaseEpochDay() ?: return@mapNotNull null
+                    SpotifyNewRelease(album = album, artistName = artistName, releaseEpochDay = epochDay)
+                }
+        }
+
+    /** Converts a `{year, month, day}` release-date object into an epoch-day for sorting/filtering. */
+    private fun JsonObject.spotifyReleaseEpochDay(): Long? {
+        val year = long("year")?.toInt() ?: return null
+        val month = (long("month")?.toInt() ?: 1).coerceIn(1, 12)
+        val day = (long("day")?.toInt() ?: 1).coerceIn(1, 31)
+        return runCatching { java.time.LocalDate.of(year, month, day).toEpochDay() }.getOrNull()
+    }
+
+    /** Album/single/compilation shape from `discography`/`relatedContent.appearsOn`. */
+    private fun JsonObject.toSpotifyReleaseAlbumItem(): AlbumItem? {
+        val id = string("id") ?: string("uri")?.substringAfterLast(':') ?: return null
+        val title = string("name") ?: return null
+        val artists =
+            obj("artists")
+                ?.array("items")
+                .orEmpty()
+                .mapNotNull { item ->
+                    val data = item.obj ?: return@mapNotNull null
+                    val name = data.obj("profile")?.string("name") ?: return@mapNotNull null
+                    val artistUri = data.string("uri")
+                    Artist(name = name, id = artistUri)
+                }
+        return AlbumItem(
+            browseId = "spotify:album:$id",
+            playlistId = "spotify:album:$id",
+            title = title,
+            artists = artists,
+            year = obj("date")?.long("year")?.toInt(),
+            thumbnail = spotifyLargestSource(obj("coverArt")).orEmpty(),
+            explicit = false,
+        )
+    }
+
+    /** `relatedContent.relatedArtists` shape — id/profile.name/uri/visuals.avatarImage. */
+    private fun JsonObject.toSpotifyRelatedArtistItem(): ArtistItem? {
+        val id = string("id") ?: string("uri")?.substringAfterLast(':') ?: return null
+        val title = obj("profile")?.string("name") ?: return null
+        return ArtistItem(
+            id = "spotify:artist:$id",
+            title = title,
+            thumbnail = spotifyLargestSource(obj("visuals")?.obj("avatarImage")),
+            shuffleEndpoint = null,
+            radioEndpoint = null,
+        )
+    }
+
+    /** `profile.playlistsV2`/`relatedContent.discoveredOnV2`/`featuringV2` playlist shape. */
+    private fun JsonObject.toSpotifyOverviewPlaylistItem(): PlaylistItem? {
+        if (string("__typename") == "GenericError") return null
+        val id = string("id") ?: string("uri")?.substringAfterLast(':') ?: return null
+        val title = string("name") ?: return null
+        val ownerName = obj("ownerV2")?.obj("data")?.string("name")
+        return PlaylistItem(
+            id = "spotify:playlist:$id",
+            title = title,
+            author = ownerName?.let { Artist(name = it, id = null) },
+            songCountText = null,
+            thumbnail =
+                obj("images")
+                    ?.array("items")
+                    ?.firstOrNull()
+                    ?.obj
+                    ?.let { spotifyLargestSource(it) },
+            playEndpoint = null,
+            shuffleEndpoint = null,
+            radioEndpoint = null,
+        )
+    }
+
+    /** Picks the largest `sources[]` entry (by width) from a `coverArt`/`avatarImage`-shaped object. */
+    private fun spotifyLargestSource(container: JsonObject?): String? =
+        container
+            ?.array("sources")
+            .orEmpty()
+            .mapNotNull { it.obj }
+            .maxByOrNull { it.long("width") ?: 0L }
+            ?.string("url")
 
     private fun tokenOverlapScore(
         expected: String,
@@ -6867,6 +7419,7 @@ object SpotifyCanvasClient {
             "fetchPlaylistWithGatedEntityRelations",
             "fetchPlaylistContentsWithGatedEntityRelations",
                 -> "fetchPlaylist"
+            "removeFromLibrary" -> "addToLibrary"
             else -> operation
         }
 

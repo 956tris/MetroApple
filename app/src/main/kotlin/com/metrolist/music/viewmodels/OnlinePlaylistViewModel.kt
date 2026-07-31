@@ -32,6 +32,7 @@ import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import com.metrolist.music.utils.reportException
 import com.metrolist.music.utils.spotify.SpotifyCanvasClient
+import com.metrolist.music.utils.spotify.SpotifyArtistOverview
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +75,7 @@ class OnlinePlaylistViewModel @Inject constructor(
 
     val playlist = MutableStateFlow<PlaylistItem?>(null)
     val playlistSongs = MutableStateFlow<List<SongItem>>(emptyList())
+    val spotifyArtistOverview = MutableStateFlow<SpotifyArtistOverview?>(null)
 
     private val _isLoading = MutableStateFlow(true)
     val isLoading = _isLoading.asStateFlow()
@@ -158,6 +160,9 @@ class OnlinePlaylistViewModel @Inject constructor(
                                     )
                                 },
                     )
+                    if (type == "artist") {
+                        fetchSpotifyArtistOverview(externalId, cookie)
+                    }
                 }
                     .onFailure { throwable ->
                         _error.value = throwable.message ?: "Failed to load Spotify $type"
@@ -219,6 +224,28 @@ class OnlinePlaylistViewModel @Inject constructor(
         this.continuation = null
         externalContinuation = continuation
         _isLoading.value = false
+    }
+
+    /**
+     * Fetches the richer Spotify artist overview (popular releases, fans-also-like,
+     * featuring, artist playlists) as a separate, independently-failing request.
+     * Launched on its own so a slow/failed overview never blocks the base artist
+     * page (name/monthly-listeners/top-tracks) from rendering.
+     */
+    private fun fetchSpotifyArtistOverview(
+        artistId: String,
+        cookie: String,
+    ) {
+        spotifyArtistOverview.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                SpotifyCanvasClient.resolveArtistOverview(artistId, cookie)
+            }.onSuccess { overview ->
+                spotifyArtistOverview.value = overview
+            }.onFailure { throwable ->
+                reportException(throwable)
+            }
+        }
     }
 
     private suspend fun fetchPodcastPlaylist() {

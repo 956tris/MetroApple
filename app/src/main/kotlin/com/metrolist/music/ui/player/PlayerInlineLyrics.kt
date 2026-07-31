@@ -89,28 +89,40 @@ internal fun PlayerInlineLyrics(
                 .orEmpty()
         }
 
+    // Throttled position used for expensive work (full-list active-line scans and
+    // per-word shadow/AnnotatedString rebuilding). Updating this at ~15fps instead of
+    // 60fps is visually indistinguishable for word-highlight sweep, but cuts the
+    // recomposition/text-shadow cost on low-end devices by roughly 4x.
+    var throttledPositionMs by remember { mutableLongStateOf(positionMs) }
+
     LaunchedEffect(isPlaying, lyricsEntries.isNotEmpty()) {
         if (!isPlaying || lyricsEntries.isEmpty()) {
             smoothPositionMs = positionAnchorMs
+            throttledPositionMs = positionAnchorMs
             return@LaunchedEffect
         }
 
+        var lastThrottledUpdateMs = 0L
         while (isActive) {
-            withFrameMillis {
+            withFrameMillis { frameTimeMillis ->
                 smoothPositionMs = positionAnchorMs + (SystemClock.elapsedRealtime() - timeAnchorMs)
+                if (frameTimeMillis - lastThrottledUpdateMs >= ThrottledLyricsUpdateIntervalMs) {
+                    lastThrottledUpdateMs = frameTimeMillis
+                    throttledPositionMs = smoothPositionMs
+                }
             }
         }
     }
 
-    val lyricLines = remember(lyricsEntries, smoothPositionMs) {
-        lyricsEntries.currentInlineLines(smoothPositionMs)
+    val lyricLines = remember(lyricsEntries, throttledPositionMs) {
+        lyricsEntries.currentInlineLines(throttledPositionMs)
     }
     val hasWordTimings = remember(lyricsEntries) {
         lyricsEntries.any { !it.words.isNullOrEmpty() }
     }
-    val smoothLine = remember(lyricsEntries, smoothPositionMs, smoothSlidingLine, hasWordTimings) {
+    val smoothLine = remember(lyricsEntries, throttledPositionMs, smoothSlidingLine, hasWordTimings) {
         if (smoothSlidingLine && hasWordTimings) {
-            lyricsEntries.currentSmoothInlineLine(smoothPositionMs)
+            lyricsEntries.currentSmoothInlineLine(throttledPositionMs)
         } else {
             null
         }
@@ -181,7 +193,9 @@ internal fun PlayerInlineLyrics(
                 ) {
                     lines.forEach { line ->
                         Text(
-                            text = line.inlineLyricsText(smoothPositionMs, textColor),
+                            text = remember(line, throttledPositionMs, textColor) {
+                                line.inlineLyricsText(throttledPositionMs, textColor)
+                            },
                             style =
                                 MaterialTheme.typography.titleLarge.copy(
                                     fontSize = if (line.isBackground) 14.sp else 17.sp,
@@ -227,6 +241,11 @@ private fun List<LyricsEntry>.currentInlineLines(positionMs: Long): List<LyricsE
 
 private const val MaxInlineLyricLines = 3
 private const val MaxInlineTextLines = 3
+
+// ~15fps for the throttled recompute path (line scans + per-word shadow text).
+// The smooth sweep line still updates every frame separately since that path is
+// cheap (rect clipping only, no text relayout or shadow rebuilding).
+private const val ThrottledLyricsUpdateIntervalMs = 66L
 private val InlineLyricsSlotHeight = 68.dp
 private val SmoothInlineLyricsSlotHeight = 76.dp
 

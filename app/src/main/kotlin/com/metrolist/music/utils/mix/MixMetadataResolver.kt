@@ -227,7 +227,7 @@ private object ReccoBeatsClient {
     )
 }
 
-private object ProviderIsrcClient {
+private object  ProviderIsrcClient {
     private const val CACHE_TTL_MS = 1000L * 60L * 60L * 24L
 
     private val client = OkHttpClient()

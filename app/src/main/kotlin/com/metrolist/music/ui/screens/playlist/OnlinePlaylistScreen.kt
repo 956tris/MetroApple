@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +61,7 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -66,6 +69,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -83,6 +87,8 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.metrolist.innertube.models.PlaylistItem
+import com.metrolist.innertube.models.AlbumItem
+import com.metrolist.innertube.models.ArtistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalListenTogetherManager
@@ -136,6 +142,7 @@ fun OnlinePlaylistScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val artistOverview by viewModel.spotifyArtistOverview.collectAsStateWithLifecycle()
     val isPodcastPlaylist = viewModel.isPodcastPlaylist
     val isExternalPlaylist = viewModel.isExternalPlaylist
     val isSpotifyArtist = viewModel.isSpotifyArtist
@@ -287,6 +294,15 @@ fun OnlinePlaylistScreen(
                     }
 
                     if (!isSearching && isSpotifyArtist) {
+                        artistOverview?.biography?.takeIf { it.isNotBlank() }?.let { bio ->
+                            item(key = "spotify_artist_biography") {
+                                SpotifyArtistBiography(
+                                    biography = bio,
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
+                        }
+
                         item(key = "spotify_artist_top_tracks_header") {
                             Text(
                                 text = stringResource(R.string.top_tracks_header),
@@ -417,6 +433,117 @@ fun OnlinePlaylistScreen(
                                 modifier = itemModifier,
                                 trailingContent = trailingContent,
                             )
+                        }
+                    }
+
+                    if (!isSearching && isSpotifyArtist) {
+                        artistOverview?.popularReleases?.takeIf { it.isNotEmpty() }?.let { releases ->
+                            item(key = "spotify_artist_popular_releases") {
+                                SpotifyArtistHorizontalSection(
+                                    title = "Popular Releases",
+                                    modifier = Modifier.animateItem(),
+                                ) {
+                                    items(releases, key = { it.browseId }) { album ->
+                                        SpotifyOverviewAlbumCard(album = album, navController = navController)
+                                    }
+                                }
+                            }
+                        }
+
+                        artistOverview?.featuring?.takeIf { it.isNotEmpty() }?.let { featuring ->
+                            item(key = "spotify_artist_featuring") {
+                                SpotifyArtistHorizontalSection(
+                                    title = "Featuring",
+                                    modifier = Modifier.animateItem(),
+                                ) {
+                                    items(featuring, key = { it.browseId }) { album ->
+                                        SpotifyOverviewAlbumCard(album = album, navController = navController)
+                                    }
+                                }
+                            }
+                        }
+
+                        artistOverview?.relatedArtists?.takeIf { it.isNotEmpty() }?.let { related ->
+                            item(key = "spotify_artist_fans_also_like") {
+                                SpotifyArtistHorizontalSection(
+                                    title = "Fans Also Like",
+                                    modifier = Modifier.animateItem(),
+                                ) {
+                                    items(related, key = { it.id }) { artist ->
+                                        SpotifyOverviewArtistCard(artist = artist, navController = navController)
+                                    }
+                                }
+                            }
+                        }
+
+                        artistOverview?.artistPlaylists?.takeIf { it.isNotEmpty() }?.let { playlists ->
+                            item(key = "spotify_artist_playlists") {
+                                SpotifyArtistHorizontalSection(
+                                    title = "Artist Playlists",
+                                    modifier = Modifier.animateItem(),
+                                ) {
+                                    items(playlists, key = { it.id }) { pl ->
+                                        SpotifyOverviewPlaylistCard(playlist = pl, navController = navController)
+                                    }
+                                }
+                            }
+                        }
+
+                        artistOverview?.discoveredOn?.takeIf { it.isNotEmpty() }?.let { playlists ->
+                            item(key = "spotify_artist_discovered_on") {
+                                SpotifyArtistHorizontalSection(
+                                    title = "Discovered On",
+                                    modifier = Modifier.animateItem(),
+                                ) {
+                                    items(playlists, key = { it.id }) { pl ->
+                                        SpotifyOverviewPlaylistCard(playlist = pl, navController = navController)
+                                    }
+                                }
+                            }
+                        }
+
+                        artistOverview?.featuringPlaylists?.takeIf { it.isNotEmpty() }?.let { playlists ->
+                            item(key = "spotify_artist_featured_in") {
+                                SpotifyArtistHorizontalSection(
+                                    title = "Featured In",
+                                    modifier = Modifier.animateItem(),
+                                ) {
+                                    items(playlists, key = { it.id }) { pl ->
+                                        SpotifyOverviewPlaylistCard(playlist = pl, navController = navController)
+                                    }
+                                }
+                            }
+                        }
+
+                        artistOverview?.concerts?.takeIf { it.isNotEmpty() }?.let { concerts ->
+                            item(key = "spotify_artist_concerts_header") {
+                                Text(
+                                    text = "Concerts",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp, vertical = 12.dp)
+                                            .animateItem(),
+                                )
+                            }
+                            items(concerts, key = { it.uri }) { concert ->
+                                SpotifyConcertRow(concert = concert, modifier = Modifier.animateItem())
+                            }
+                        }
+
+                        artistOverview?.merch?.takeIf { it.isNotEmpty() }?.let { merch ->
+                            item(key = "spotify_artist_merch") {
+                                SpotifyArtistHorizontalSection(
+                                    title = "Merch",
+                                    modifier = Modifier.animateItem(),
+                                ) {
+                                    items(merch, key = { it.url }) { item ->
+                                        SpotifyMerchCard(item = item)
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -915,4 +1042,295 @@ private fun OnlinePlaylistHeader(
         }
     }
 }
+}
+
+/** Horizontal-scroll section wrapper used for the Spotify artist overview rows. */
+@Composable
+private fun SpotifyArtistHorizontalSection(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 24.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun SpotifyArtistBiography(
+    biography: String,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val plainText = remember(biography) { biography.replace(Regex("<[^>]*>"), "") }
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { expanded = !expanded },
+                    onLongClick = {},
+                )
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = "About",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        Text(
+            text = plainText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
+            maxLines = if (expanded) Int.MAX_VALUE else 4,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = if (expanded) "Show less" else "Show more",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun SpotifyConcertRow(
+    concert: com.metrolist.music.utils.spotify.SpotifyConcert,
+    modifier: Modifier = Modifier,
+) {
+    val uriHandler = LocalUriHandler.current
+    val dateLabel = remember(concert.startDateIso) { concert.startDateIso?.take(10).orEmpty() }
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = {
+                        val rawId = concert.uri.substringAfterLast(':')
+                        uriHandler.openUri("https://open.spotify.com/concert/$rawId")
+                    },
+                    onLongClick = {},
+                )
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = concert.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val subtitle = listOfNotNull(concert.venue, concert.city).joinToString(", ")
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (dateLabel.isNotBlank()) {
+            Text(
+                text = dateLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotifyMerchCard(
+    item: com.metrolist.music.utils.spotify.SpotifyMerchItem,
+) {
+    val uriHandler = LocalUriHandler.current
+    Column(
+        modifier =
+            Modifier
+                .width(140.dp)
+                .combinedClickable(
+                    onClick = { uriHandler.openUri(item.url) },
+                    onLongClick = {},
+                ),
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current).data(item.imageUrl).build(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier =
+                Modifier
+                    .size(140.dp)
+                    .clip(RoundedCornerShape(6.dp)),
+        )
+        Text(
+            text = item.name,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        item.price?.let { price ->
+            Text(
+                text = price,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotifyOverviewAlbumCard(
+    album: AlbumItem,
+    navController: NavController,
+) {
+    Column(
+        modifier =
+            Modifier
+                .width(140.dp)
+                .combinedClickable(
+                    onClick = {
+                        val rawId = album.browseId.substringAfterLast(':')
+                        ExternalHomeItemIds.externalMetroRoute("spotify:album:$rawId")?.let { route ->
+                            navController.navigate(route)
+                        }
+                    },
+                    onLongClick = {},
+                ),
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current).data(album.thumbnail).build(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier =
+                Modifier
+                    .size(140.dp)
+                    .clip(RoundedCornerShape(6.dp)),
+        )
+        Text(
+            text = album.title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        album.year?.let { year ->
+            Text(
+                text = year.toString(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpotifyOverviewArtistCard(
+    artist: ArtistItem,
+    navController: NavController,
+) {
+    Column(
+        modifier =
+            Modifier
+                .width(110.dp)
+                .combinedClickable(
+                    onClick = {
+                        val rawId = artist.id.substringAfterLast(':')
+                        ExternalHomeItemIds.externalMetroRoute("spotify:artist:$rawId")?.let { route ->
+                            navController.navigate(route)
+                        }
+                    },
+                    onLongClick = {},
+                ),
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current).data(artist.thumbnail).build(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier =
+                Modifier
+                    .size(110.dp)
+                    .clip(CircleShape),
+        )
+        Text(
+            text = artist.title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier =
+                Modifier
+                    .padding(top = 6.dp)
+                    .fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun SpotifyOverviewPlaylistCard(
+    playlist: PlaylistItem,
+    navController: NavController,
+) {
+    Column(
+        modifier =
+            Modifier
+                .width(140.dp)
+                .combinedClickable(
+                    onClick = {
+                        val rawId = playlist.id.substringAfterLast(':')
+                        ExternalHomeItemIds.externalMetroRoute("spotify:collection:$rawId")?.let { route ->
+                            navController.navigate(route)
+                        }
+                    },
+                    onLongClick = {},
+                ),
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current).data(playlist.thumbnail).build(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier =
+                Modifier
+                    .size(140.dp)
+                    .clip(RoundedCornerShape(6.dp)),
+        )
+        Text(
+            text = playlist.title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        playlist.author?.name?.let { authorName ->
+            Text(
+                text = authorName,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }

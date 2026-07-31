@@ -12,6 +12,7 @@ object LyricsProviderRegistry {
         "LrcLib" to LrcLibLyricsProvider,
         "KuGou" to KuGouLyricsProvider,
         "LyricsPlus" to LyricsPlusProvider,
+        "Spotify" to SpotifyLyricsProvider,
         "YouTubeSubtitle" to YouTubeSubtitleLyricsProvider,
         "YouTube" to YouTubeLyricsProvider,
     )
@@ -37,6 +38,7 @@ object LyricsProviderRegistry {
     fun getDefaultProviderOrder(): List<String> = listOf(
         "BetterLyrics",
         "LrcLib",
+        "Spotify",
         "KuGou",
         "Paxsenix",
         "LyricsPlus",
