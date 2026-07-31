@@ -39,7 +39,7 @@ Im back :D
 
 | Playback | Discovery |
 | --- | --- |
-| Qobuz-first playback routing | YouTube Music home feed |
+| Qobuz-first playback routing | YouTube Music home feed and many other frontends |
 | Provider fallback when a stream misses | Spotify-style personalized frontpage |
 | Background playback | TIDAL-style personalized frontpage |
 | Downloads and cache for offline use | Search songs, albums, artists, videos, and playlists |
@@ -51,7 +51,7 @@ Im back :D
 | Audio normalization | Local playlists |
 | Tempo and pitch control | Import playlists |
 | Equalizer | Reorder songs in playlist or queue |
-| Spotify Canvas support | Lyrics, translation, and synced lyrics |
+| Spotify Canvas support and animated album covers | Lyrics, translation, and synced lyrics |
 
 ---
 
@@ -95,7 +95,7 @@ Special thanks to:
 - [Metrolist](https://github.com/MetrolistGroup/Metrolist)
 - [InnerTune](https://github.com/z-huang/InnerTune)
 - [OuterTune](https://github.com/DD3Boh/OuterTune)
-- [Kizzy](https://github.com/dead8309/Kizzy)
+  
 - [Better Lyrics](https://better-lyrics.boidu.dev)
 - [MusicRecognizer](https://github.com/aleksey-saenko/MusicRecognizer)
 - [Canvas Api](https://github.com/Paxsenix0/Spotify-Canvas-API)
