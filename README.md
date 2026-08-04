@@ -31,7 +31,7 @@ Additionally this unoffical fork of Metrolist is completely different backend an
 
 MetroFuse is a fork of Metrolist focused on combining multiple music frontpages and playback providers in one Android app. It keeps the familiar Material 3 player, library, lyrics, queue, widgets, and playlist tools while adding source switching for different discovery and playback workflows.
 
-The default playback path is Deezer-first, with other enabled providers used only when the primary source cannot produce a playable stream.
+The default playback path is Deezer-first, with Amazon Music and YouTube Music as fallback providers when Deezer cannot produce a playable stream.
 Im back :D
 ---
 

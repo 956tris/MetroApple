@@ -136,13 +136,9 @@ fun AudioProviderOrderItem.isPlaybackProvider(): Boolean =
 object AudioProviderOrder {
     val Default: List<AudioProviderOrderItem> =
         listOf(
-            AudioProviderOrderItem.SOUNDCLOUD,
-            AudioProviderOrderItem.TIDAL,
             AudioProviderOrderItem.DEEZER,
             AudioProviderOrderItem.AMAZON_MUSIC,
-            AudioProviderOrderItem.INSTAGRAM,
             AudioProviderOrderItem.YOUTUBE_MUSIC,
-            AudioProviderOrderItem.QOBUZ,
         )
 
     fun serialize(providers: List<AudioProviderOrderItem>): String =
