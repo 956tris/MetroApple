@@ -113,11 +113,20 @@ object AmazonAudioProvider {
     private val streamCache = ConcurrentHashMap<String, Resolved>()
     private val decryptionKeyCache = ConcurrentHashMap<String, String>()
 
+    // Keyed by ASIN only (streamCache is keyed by the full query cache key incl. country/
+    // quality). createMediaSource() runs synchronously and needs the CDN url + CENC key for a
+    // just-resolved track without re-running resolve()/network IO, so it looks it up here.
+    private val resolvedByTrackId = ConcurrentHashMap<String, Resolved>()
+
+    /** Last [Resolved] stream info for [trackId] (ASIN), if resolved recently. */
+    fun resolvedFor(trackId: String): Resolved? = resolvedByTrackId[trackId]
+
     fun isAmazonCdnUrl(url: String): Boolean = url.contains("amazon") && (url.contains(".com") || url.contains(".net"))
 
     fun invalidate(mediaId: String) {
         trackCache.entries.removeIf { it.value.asin == mediaId || it.key.startsWith("$mediaId:") }
         streamCache.entries.removeIf { it.key.startsWith("$mediaId:") }
+        resolvedByTrackId.remove(mediaId)
         AmazonFfmpegDecryptor.clearCache(mediaId)
     }
 
@@ -169,6 +178,11 @@ object AmazonAudioProvider {
         )
         val resolved = resolveAsin(track.asin, query.mediaId, query.country, query.quality)
         streamCache[cacheKey] = resolved
+        resolvedByTrackId[track.asin] = resolved
+        // Also key by the canonical mediaId - in fallback-provider scenarios (e.g. Amazon
+        // used as a backup source for a track whose canonical id is a YouTube id), mediaId
+        // won't match the ASIN, but createMediaSource() only has mediaId to look up with.
+        resolvedByTrackId[query.mediaId] = resolved
         return resolved
     }
 

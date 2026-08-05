@@ -84,6 +84,7 @@ fun ProviderOrderScreen(
                         AudioProviderOrderItem.YOUTUBE_MUSIC -> youtubeMusicName
                         AudioProviderOrderItem.QOBUZ -> qobuzName
                         AudioProviderOrderItem.AMAZON_MUSIC -> amazonMusicName
+                        AudioProviderOrderItem.APPLE_MUSIC -> appleMusicName
                     },
                     icon = providerIcon,
                 )

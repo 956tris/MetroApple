@@ -131,6 +131,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Player.STATE_ENDED
 import androidx.navigation.NavController
 import androidx.palette.graphics.Palette
+import com.metrolist.music.R
 import coil3.compose.AsyncImage
 import coil3.imageLoader
 import coil3.request.ImageRequest
@@ -140,7 +141,7 @@ import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
-import com.metrolist.music.R
+import com.metrolist.music.playback.MusicService
 import com.metrolist.music.constants.CanvasArtworkPriority
 import com.metrolist.music.constants.CanvasArtworkPriorityKey
 import com.metrolist.music.constants.CropAlbumArtKey
@@ -227,6 +228,7 @@ private const val SOUNDCLOUD_FALLBACK_ITAG = 100_031
 private const val INSTAGRAM_FALLBACK_ITAG = 100_041
 private const val AMAZON_FALLBACK_ITAG = 100_045
 private const val AMAZON_FLAC_ITAG = 100_046
+private const val APPLE_MUSIC_FALLBACK_ITAG = 100_050
 private const val LOCAL_FILE_ITAG = -2000
 private const val DefaultAdaptiveGalaxyArtworkAlpha = 0.58f
 private val AppleMusicCanvasHeaders =
@@ -241,7 +243,7 @@ private val YouTubeAudioItags = setOf(139, 140, 141, 249, 250, 251, 256, 258, 32
 @Suppress("DEPRECATION")
 private fun FormatEntity.audioSourceLabel(): String? =
     when (itag) {
-        APPLE_MUSIC_WRAPPER_ITAG -> "Apple Music".takeIf { hasUsefulPlaybackDetails() }
+        APPLE_MUSIC_WRAPPER_ITAG, APPLE_MUSIC_FALLBACK_ITAG -> "Apple Music".takeIf { hasUsefulPlaybackDetails() }
         QOBUZ_FALLBACK_ITAG -> "Qobuz"
         TIDAL_FALLBACK_ITAG -> "TIDAL"
         DEEZER_FALLBACK_ITAG -> "Deezer"
@@ -298,6 +300,14 @@ private fun FormatEntity.hasUsefulPlaybackDetails(): Boolean {
 
 private fun FormatEntity.playerQualityLabel(liveBitrate: Int? = null): String? {
     val codec = when {
+        itag == APPLE_MUSIC_WRAPPER_ITAG || itag == APPLE_MUSIC_FALLBACK_ITAG -> {
+            when {
+                codecs.contains("atmos", ignoreCase = true) -> "Dolby Atmos"
+                codecs.contains("ac3", ignoreCase = true) -> "Dolby Audio"
+                codecs.contains("he", ignoreCase = true) -> "AAC HE"
+                else -> "AAC"
+            }
+        }
         mimeType.contains("flac", ignoreCase = true) ||
                 codecs.contains("flac", ignoreCase = true) -> "FLAC"
         codecs.contains("alac", ignoreCase = true) -> "ALAC"

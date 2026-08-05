@@ -774,6 +774,7 @@ private fun previewTransitionFraction(
             MetroMixPreset.RADIO_EDIT -> 0.78f
             MetroMixPreset.CLUB_BLEND,
             MetroMixPreset.BEAT_BLEND,
+            MetroMixPreset.AUTOMIX,
             MetroMixPreset.LONG_BLEND -> 1.08f
             else -> 1f
         }
@@ -825,6 +826,10 @@ private fun previewVolumePair(
     fun equalPowerOut(value: Float) = cos(value.coerceIn(0f, 1f) * (PI / 2.0)).toFloat()
     fun pair(fadeIn: Float, fadeOut: Float): Pair<Float, Float> = fadeIn.coerceIn(0f, 1f) to fadeOut.coerceIn(0f, 1f)
     return when (preset) {
+        MetroMixPreset.AUTOMIX -> pair(
+            equalPowerIn(smooth(range(p, 0.02f, 0.98f))),
+            equalPowerOut(smooth(range(p, 0.02f, 0.98f))),
+        )
         MetroMixPreset.SMART_DJ,
         MetroMixPreset.SMOOTH,
         MetroMixPreset.AUTO -> pair(equalPowerIn(smooth(p)), equalPowerOut(smooth(p)))
@@ -1047,6 +1052,24 @@ private fun PresetStrip(
 ) {
     val options =
         listOf(
+            MetroMixStudioPreset(
+                // Apple Automix-style: tempo/key-aware, wide equal-power blend.
+                // No dedicated string resource yet, so this stays inline rather
+                // than risk a missing-resource crash.
+                // NOTE: must stay on AUTO/AUTO/AUTO. previewEffectivePreset() (this file)
+                // and crossfadeVolumePair() (MusicService.kt) both remap non-AUTO curve
+                // values to other presets before checking which preset was actually
+                // selected - and MusicService's BALANCED->SMART_DJ remap isn't even
+                // gated on preset==AUTO the way this file's copy is, so BALANCED would
+                // silently steal Automix's tempo-synced curve at runtime. AUTO/AUTO/AUTO
+                // is the only combo every guard chain leaves untouched.
+                label = "Automix",
+                preset = MetroMixPreset.AUTOMIX,
+                bars = 16,
+                volumeCurve = MetroMixVolumeCurve.AUTO,
+                eqCurve = MetroMixEqCurve.AUTO,
+                effectCurve = MetroMixEffectCurve.AUTO,
+            ),
             MetroMixStudioPreset(
                 label = stringResource(R.string.metromix_preset_auto),
                 preset = MetroMixPreset.AUTO,

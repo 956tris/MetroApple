@@ -120,6 +120,47 @@ object AmazonFfmpegDecryptor {
         cacheRoot()?.deleteRecursively()
     }
 
+    /**
+     * Path a progressive streaming decrypt (see AmazonFfmpegDataSource) should tee its
+     * decrypted FLAC bytes into while playback is in progress. Always a scratch/temp location
+     * distinct from getCachedFlac's slot until promoteStreamingTempToCache() runs.
+     */
+    fun pendingFlacPath(asin: String): File? {
+        val dir = cacheRoot() ?: return null
+        return File(dir, "$asin.streaming$FLAC_SUFFIX")
+    }
+
+    /**
+     * Atomically promotes a fully-written streaming temp file (from pendingFlacPath) into the
+     * real cache slot so subsequent plays hit getCachedFlac's fast path. Deletes tempFile in
+     * all outcomes so scratch files never accumulate. Returns whether promotion happened.
+     */
+    fun promoteStreamingTempToCache(asin: String, tempFile: File): Boolean {
+        val dir = cacheRoot()
+        if (dir == null || !tempFile.exists() || tempFile.length() == 0L) {
+            tempFile.delete()
+            return false
+        }
+        val dest = File(dir, "$asin$FLAC_SUFFIX")
+        if (dest.exists() && dest.length() > 0) {
+            tempFile.delete()
+            return false
+        }
+        return try {
+            if (!tempFile.renameTo(dest)) {
+                tempFile.copyTo(dest, overwrite = true)
+                tempFile.delete()
+            }
+            Timber.tag(TAG).i("Promoted streaming decrypt to cache for ASIN $asin (${dest.length()} bytes)")
+            true
+        } catch (e: IOException) {
+            Timber.tag(TAG).w(e, "Failed to promote streaming decrypt cache for ASIN $asin")
+            dest.delete()
+            tempFile.delete()
+            false
+        }
+    }
+
     private fun downloadAndDecrypt(
         context: Context,
         asin: String,

@@ -44,11 +44,15 @@ import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.deezer.DeezerAudioAwareDataSourceFactory
 import com.metrolist.music.deezer.DeezerAudioDataSource
+import com.metrolist.music.apple.AppleAudioProvider
+import com.metrolist.music.constants.AppleAudioQuality
+import com.metrolist.music.constants.AppleAudioQualityKey
 import com.metrolist.music.deezer.DeezerAudioProvider
 import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.lyrics.LyricsHelper
+import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.providers.IsrcResolver
 import com.metrolist.music.providers.ProviderIsrc
 import com.metrolist.music.qobuz.QobuzAudioProvider
@@ -395,6 +399,14 @@ constructor(
                 format = instagramFallbackFormat(mediaId, this),
             )
 
+        fun AppleAudioProvider.Resolved.toDownloadResolution(): DownloadStreamResolution =
+            DownloadStreamResolution(
+                uri = mediaUri,
+                expiresAtMs = expiresAtMs,
+                cacheKey = appleMusicFallbackCacheKey(mediaId),
+                format = appleMusicFallbackFormat(mediaId, this),
+            )
+
         var qobuzAttempt: Result<QobuzAudioProvider.Resolved> =
             Result.failure(IllegalStateException("Qobuz not attempted yet"))
         var soundCloudAttempt: Result<SoundCloudAudioProvider.Resolved> =
@@ -403,6 +415,8 @@ constructor(
             Result.failure(IllegalStateException("Deezer audio not enabled"))
         var instagramAttempt: Result<InstagramAudioProvider.Resolved> =
             Result.failure(IllegalStateException("Instagram audio not enabled"))
+        var appleAttempt: Result<AppleAudioProvider.Resolved> =
+            Result.failure(IllegalStateException("Apple Music not enabled"))
         var amazonAttempt: Result<AmazonAudioProvider.Resolved> =
             Result.failure(IllegalStateException("Amazon Music not enabled"))
         var youtubeAttempt: Result<DownloadStreamResolution> =
@@ -496,6 +510,25 @@ constructor(
                                 mimeType = mimeType,
                             ),
                         )
+                    }
+                }
+                AudioProviderOrderItem.APPLE_MUSIC -> {
+                    attemptedProviders += provider
+                    appleAttempt = runCatching {
+                        AppleAudioProvider.resolve(
+                            AppleAudioProvider.Query(
+                                song = song?.song?.title ?: mediaId,
+                                artist = song?.orderedArtists?.firstOrNull()?.name ?: "",
+                                album = song?.song?.albumName ?: song?.album?.title,
+                                isrc = ProviderIsrc.firstOf(mediaId, song?.song?.id),
+                                durationMs = song?.song?.duration?.toLong()?.times(1000L),
+                                quality = context.dataStore.get(AppleAudioQualityKey).toEnum(AppleAudioQuality.AAC),
+                            )
+                        )
+                    }
+                    appleAttempt.getOrNull()?.let { resolved ->
+                        Timber.tag(TAG).i("Using Apple Music stream for download $mediaId: ${resolved.title}")
+                        return resolved.toDownloadResolution()
                     }
                 }
                 AudioProviderOrderItem.YOUTUBE_MUSIC -> {
@@ -594,9 +627,16 @@ constructor(
         } else {
             ""
         }
+        val appleDetail = if (attemptedProviders.contains(AudioProviderOrderItem.APPLE_MUSIC)) {
+            appleAttempt.exceptionOrNull()?.message
+                ?.let { "Apple Music failed: $it; " }
+                .orEmpty()
+        } else {
+            ""
+        }
         val qobuzError = qobuzAttempt.exceptionOrNull() ?: IllegalStateException("Qobuz failed")
         throw QobuzAudioProvider.QobuzResolutionException(
-            "Qobuz failed: ${qobuzError.message ?: qobuzError.javaClass.simpleName}; ${deezerDetail}${instagramDetail}${amazonDetail}SoundCloud failed: ${soundCloudError.message ?: soundCloudError.message ?: soundCloudError.javaClass.simpleName}; YouTube failed: ${youtubeError.message ?: youtubeError.javaClass.simpleName}",
+            "Qobuz failed: ${qobuzError.message ?: qobuzError.javaClass.simpleName}; ${deezerDetail}${instagramDetail}${amazonDetail}${appleDetail}SoundCloud failed: ${soundCloudError.message ?: soundCloudError.message ?: soundCloudError.javaClass.simpleName}; YouTube failed: ${youtubeError.message ?: youtubeError.javaClass.simpleName}",
             qobuzError,
         )
     }
@@ -817,10 +857,12 @@ constructor(
         private const val AMAZON_FALLBACK_ITAG = 100_045
         private const val AMAZON_FLAC_ITAG = 100_046
         private const val AMAZON_ATMOS_ITAG = 100_047
+        const val APPLE_MUSIC_FALLBACK_ITAG = 100_050
         private const val DEEZER_FALLBACK_CACHE_PREFIX = "deezer-fallback-audio:"
         private const val SOUNDCLOUD_FALLBACK_CACHE_PREFIX = "soundcloud-fallback-mp3:"
         private const val INSTAGRAM_FALLBACK_CACHE_PREFIX = "instagram-fallback-audio:"
         private const val AMAZON_FALLBACK_CACHE_PREFIX = "amazon-fallback-audio:"
+        private const val APPLE_MUSIC_FALLBACK_CACHE_PREFIX = "apple-music-fallback-audio:"
         private const val YOUTUBE_FALLBACK_CACHE_PREFIX = "youtube-fallback-aac:"
         private const val QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback-v2:"
 
@@ -831,6 +873,8 @@ constructor(
         private fun instagramFallbackCacheKey(mediaId: String) = "$INSTAGRAM_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun amazonFallbackCacheKey(mediaId: String) = "$AMAZON_FALLBACK_CACHE_PREFIX$mediaId"
+
+        private fun appleMusicFallbackCacheKey(mediaId: String) = "$APPLE_MUSIC_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun qobuzFallbackCacheKey(mediaId: String) = "$QOBUZ_FALLBACK_CACHE_PREFIX$mediaId"
 
@@ -843,6 +887,7 @@ constructor(
             .removePrefix(SOUNDCLOUD_FALLBACK_CACHE_PREFIX)
             .removePrefix(INSTAGRAM_FALLBACK_CACHE_PREFIX)
             .removePrefix(AMAZON_FALLBACK_CACHE_PREFIX)
+            .removePrefix(APPLE_MUSIC_FALLBACK_CACHE_PREFIX)
             .removePrefix(YOUTUBE_FALLBACK_CACHE_PREFIX)
 
         private fun deezerFallbackFormat(
@@ -903,6 +948,22 @@ constructor(
             codecs = resolved.codecs,
             bitrate = resolved.bitrate,
             sampleRate = resolved.sampleRate,
+            contentLength = 0L,
+            loudnessDb = null,
+            perceptualLoudnessDb = null,
+            playbackUrl = null,
+        )
+
+        private fun appleMusicFallbackFormat(
+            mediaId: String,
+            resolved: AppleAudioProvider.Resolved,
+        ) = FormatEntity(
+            id = mediaId,
+            itag = APPLE_MUSIC_FALLBACK_ITAG,
+            mimeType = resolved.mimeType,
+            codecs = resolved.codecs,
+            bitrate = resolved.bitrate,
+            sampleRate = 44100,
             contentLength = 0L,
             loudnessDb = null,
             perceptualLoudnessDb = null,

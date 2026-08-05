@@ -192,6 +192,7 @@ object ProviderMatchSearch {
                     )
                 }
             }
+            AudioProviderOrderItem.APPLE_MUSIC -> emptyList()
         }
 
     private suspend fun resolveSpotifyIsrc(

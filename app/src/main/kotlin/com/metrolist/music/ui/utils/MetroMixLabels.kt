@@ -16,6 +16,9 @@ import com.metrolist.music.constants.MetroMixVolumeCurve
 @Composable
 fun metroMixPresetLabel(preset: MetroMixPreset): String =
     when (preset) {
+        // No string resource yet (see MetroMixStudioDialog's PresetStrip note) -
+        // literal string avoids needing a new R.string.* entry across all locales.
+        MetroMixPreset.AUTOMIX -> "Automix"
         MetroMixPreset.AUTO -> stringResource(R.string.metromix_preset_auto)
         MetroMixPreset.SMART_DJ -> stringResource(R.string.metromix_preset_smart_dj)
         MetroMixPreset.BEAT_BLEND -> stringResource(R.string.metromix_preset_beat_blend)
@@ -38,6 +41,7 @@ fun metroMixPresetLabel(preset: MetroMixPreset): String =
 @Composable
 fun metroMixPresetDescription(preset: MetroMixPreset): String =
     when (preset) {
+        MetroMixPreset.AUTOMIX -> "Tempo, key, and beat-phase matched blend - the closest thing to a real DJ transition"
         MetroMixPreset.AUTO -> stringResource(R.string.metromix_preset_auto_desc)
         MetroMixPreset.SMART_DJ -> stringResource(R.string.metromix_preset_smart_dj_desc)
         MetroMixPreset.BEAT_BLEND -> stringResource(R.string.metromix_preset_beat_blend_desc)

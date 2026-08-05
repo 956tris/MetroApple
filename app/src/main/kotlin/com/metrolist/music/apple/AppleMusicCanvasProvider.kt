@@ -320,7 +320,7 @@ object AppleMusicCanvasProvider {
         getToken(forceRefresh)
 
     /** Fetch (or return cached) Bearer token from the project JWT endpoint. */
-    private suspend fun getToken(forceRefresh: Boolean = false): String? {
+    internal suspend fun getToken(forceRefresh: Boolean = false): String? {
         // Fast path: don't even take the lock if we already have a fresh token.
         if (!forceRefresh) {
             val fresh = cachedToken
@@ -371,7 +371,7 @@ object AppleMusicCanvasProvider {
      * rather than relying on a bare `extend=editorialVideo`, which returns 200 OK
      * responses that simply omit the motion attributes.
      */
-    private fun buildAmpUrl(base: String, extraParams: Map<String, String> = emptyMap()): String {
+    internal fun buildAmpUrl(base: String, extraParams: Map<String, String> = emptyMap()): String {
         val builder = base.toHttpUrlOrNull()!!.newBuilder()
             .addQueryParameter("art[url]", "f")
             .addQueryParameter("fields[albums]", "name,url,editorialVideo,motionArtwork,editorialArtwork")
@@ -387,7 +387,7 @@ object AppleMusicCanvasProvider {
     }
 
     /** Builds an authenticated AMP API request (headers mirrored from the working reference impl). */
-    private fun ampRequest(url: String, token: String): Request =
+    internal fun ampRequest(url: String, token: String): Request =
         Request.Builder()
             .url(url)
             .get()
@@ -403,7 +403,7 @@ object AppleMusicCanvasProvider {
      * through to a broad scan of other resources in the response, which is what
      * caused wrong-track canvases.
      */
-    private fun fetchByIsrc(
+    internal fun fetchByIsrc(
         isrc: String,
         token: String,
         aspect: CanvasAspectPreference,
@@ -450,7 +450,7 @@ object AppleMusicCanvasProvider {
      * result. This prevents the "wrong song's canvas" bug where a different
      * track in the same album/playlist gets picked.
      */
-    private fun fetchBySearch(
+    internal fun fetchBySearch(
         song: String,
         artist: String,
         durationSeconds: Int?,

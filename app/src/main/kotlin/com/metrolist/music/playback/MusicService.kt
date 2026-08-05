@@ -62,6 +62,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
 import androidx.media3.datasource.cache.SimpleCache
@@ -117,6 +118,7 @@ import com.metrolist.music.constants.ExperimentalLiveWallpaperKey
 import com.metrolist.music.constants.isPlaybackProvider
 import com.metrolist.music.playback.CanvasWallpaperService
 import com.metrolist.music.utils.PreferenceCache
+import com.metrolist.music.utils.mix.harmonicMixHint
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import kotlinx.coroutines.flow.collect
@@ -126,6 +128,7 @@ import com.metrolist.music.amazon.AmazonAtmosDecryptor
 import com.metrolist.music.amazon.AmazonFfmpegDecryptor
 import com.metrolist.music.amazon.AmazonAudioProvider
 import com.metrolist.music.amazon.AmazonAudioProvider.toAmazonAsinOrNull
+import com.metrolist.music.amazon.AmazonFfmpegDataSource
 import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
 import com.metrolist.music.constants.AutoplayKey
@@ -274,6 +277,7 @@ import com.metrolist.music.playback.queues.SoundCloudQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.providers.SoundCloudHomeFeedProvider
 import com.metrolist.music.playback.queues.filterExplicit
+import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.providers.DeezerHomeFeedProvider
 import com.metrolist.music.providers.IsrcResolver
@@ -284,6 +288,9 @@ import com.metrolist.music.providers.TidalHomeFeedProvider
 import com.metrolist.music.qobuz.QobuzAudioProvider
 import com.metrolist.music.soundcloud.SoundCloudAudioProvider
 import com.metrolist.music.instagram.InstagramAudioProvider
+import com.metrolist.music.apple.AppleAudioProvider
+import com.metrolist.music.constants.AppleAudioQuality
+import com.metrolist.music.constants.AppleAudioQualityKey
 import com.metrolist.music.tidal.TidalAudioProvider
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
@@ -377,6 +384,31 @@ private data class MetroMixRuntimeProfile(
     val effectCurve: MetroMixEffectCurve = MetroMixEffectCurve.AUTO,
 )
 
+/**
+ * Everything the Automix engine needs for one transition, computed once at
+ * [MusicService.startCrossfade] time from BPM + Camelot key metadata and then
+ * reused by both the beat-phase seek (so tracks start aligned) and the
+ * crossfade tick loop (so the tempo ramp and duration scaling stay in sync
+ * with the number that was actually used to align the beat grids).
+ */
+private data class AutomixPlan(
+    val bpmA: Float,
+    val bpmB: Float,
+    val targetBpm: Float,
+    // Playback speed multiplier for each track, capped to +/-8% so Sonic's
+    // pitch-preserving time-stretch stays inaudible.
+    val speedA: Float,
+    val speedB: Float,
+    // How far into track B to start playback so its downbeat lines up with
+    // track A's beat grid at the moment the transition begins. Approximated
+    // by assuming both tracks start on a downbeat, since no true onset/beat
+    // tracker is available - a fair assumption for the mainstream catalog.
+    val phaseOffsetMs: Long,
+    val keyCompatibility: com.metrolist.music.utils.mix.KeyCompatibility,
+    val durationScale: Float,
+    val bassSeparation: Float,
+)
+
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @androidx.annotation.OptIn(UnstableApi::class)
 @AndroidEntryPoint
@@ -430,6 +462,7 @@ class MusicService :
     private var activeCrossfadeDurationMs = 5000L
     private var activeMetroMixRuntimePreset: MetroMixPreset? = null
     private var activeMetroMixRuntimeProfile: MetroMixRuntimeProfile? = null
+    private var activeAutomixPlan: AutomixPlan? = null
     private var crossfadeTriggerJob: Job? = null
     private var crossfadePrepareJob: Job? = null
 
@@ -969,7 +1002,7 @@ class MusicService :
 
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
 
-        audioQuality = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.AUTO)
+        audioQuality = dataStore.get<String>(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.AUTO)
         playerVolume = MutableStateFlow(dataStore.get(PlayerVolumeKey, 1f).coerceIn(0f, 1f))
         dataStore.data
             .map { it[InstagramCookieKey] ?: "" }
@@ -4506,6 +4539,7 @@ class MusicService :
             DEEZER_FALLBACK_ITAG -> "deezer"
             SOUNDCLOUD_FALLBACK_ITAG -> "soundcloud"
             INSTAGRAM_FALLBACK_ITAG -> "instagram"
+            APPLE_MUSIC_FALLBACK_ITAG -> "apple music"
             AMAZON_FALLBACK_ITAG, AMAZON_FLAC_ITAG -> "amazon music"
             DIRECT_HTTP_AUDIO_ITAG -> "direct audio"
             else -> "youtube music".takeIf { itag > 0 }
@@ -4519,6 +4553,7 @@ class MusicService :
             value.startsWith(deezerFallbackCacheKey(""), ignoreCase = true) -> "deezer"
             value.startsWith(soundCloudFallbackCacheKey(""), ignoreCase = true) -> "soundcloud"
             value.startsWith(instagramFallbackCacheKey(""), ignoreCase = true) -> "instagram"
+            value.startsWith(appleMusicFallbackCacheKey(""), ignoreCase = true) -> "apple music"
             value.contains("amazon") && (value.contains(".com") || value.contains(".co")) -> "amazon music"
             value.startsWith(directHttpAudioCacheKey(""), ignoreCase = true) -> "direct audio"
             value.startsWith(youtubeFallbackCacheKey(""), ignoreCase = true) -> "youtube music"
@@ -4790,11 +4825,83 @@ class MusicService :
             else -> true
         }
 
+    /**
+     * Intercepts DataSource opens for resolved Amazon CDN URLs and routes them through
+     * AmazonFfmpegDataSource for progressive FFmpeg decryption, instead of streaming the
+     * still-encrypted CENC bytes straight through.
+     *
+     * This has to live at the DataSource level, not the MediaSource level: MediaSource.Factory
+     * .createMediaSource() runs before AmazonAudioProvider.resolve() has ever been called for
+     * a given mediaId (resolution only happens later, inside the ResolvingDataSource transform
+     * below, when the DataSource chain actually opens) - so a MediaSource-level check can never
+     * see a resolved stream on a first play. By wrapping the DataSource.Factory passed into
+     * ResolvingDataSource here, this sees the dataSpec only *after* the transform has already
+     * resolved it to the real CDN URL and populated AmazonAudioProvider.resolvedFor(), on the
+     * same synchronous call stack - so the lookup below is never racy.
+     */
+    // Amazon streaming-decrypt tracks are keyed by ASIN or mediaId here (both written), so
+    // AmazonFfmpegAwareDataSource.open() can look up the real known duration regardless of
+    // which identifier it recovers from the DataSpec's cache key.
+    private val knownDurationMsByTrackId = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private inner class AmazonFfmpegAwareDataSourceFactory(
+        private val upstreamFactory: DataSource.Factory,
+    ) : DataSource.Factory {
+        override fun createDataSource(): DataSource = AmazonFfmpegAwareDataSource(upstreamFactory.createDataSource())
+    }
+
+    private inner class AmazonFfmpegAwareDataSource(
+        private val upstream: DataSource,
+    ) : DataSource {
+        private var active: DataSource = upstream
+        private val transferListeners = mutableListOf<TransferListener>()
+
+        override fun addTransferListener(transferListener: TransferListener) {
+            transferListeners += transferListener
+            upstream.addTransferListener(transferListener)
+        }
+
+        override fun open(dataSpec: DataSpec): Long {
+            val url = dataSpec.uri.toString()
+            val mediaId = dataSpec.key?.let(::mediaIdFromDataSpecKey)
+            val resolved = mediaId?.let { AmazonAudioProvider.resolvedFor(it) }
+            val isAtmos = resolved?.codecs?.lowercase()?.contains("eac3") == true
+            // Deliberately not also checking AmazonAudioProvider.isAmazonCdnUrl(url) here -
+            // that's a url.contains("amazon") text check and Amazon's real CDN URLs are on
+            // generic CloudFront domains (e.g. *.cloudfront.net) with no "amazon" substring at
+            // all, so it would always be false. resolvedFor(mediaId) is already unambiguous and
+            // provider-specific (only ever populated by AmazonAudioProvider.resolve()), so it's
+            // sufficient on its own.
+            active = if (resolved != null && !isAtmos) {
+                Timber.tag(TAG).d("Amazon FFmpeg streaming decrypt engaged for $mediaId")
+                val knownDurationMs = mediaId?.let { knownDurationMsByTrackId[it] } ?: knownDurationMsByTrackId[resolved.trackId]
+                AmazonFfmpegDataSource(applicationContext, resolved, knownDurationMs).also { ds ->
+                    transferListeners.forEach(ds::addTransferListener)
+                }
+            } else {
+                upstream
+            }
+            return active.open(dataSpec)
+        }
+
+        override fun read(
+            buffer: ByteArray,
+            offset: Int,
+            length: Int,
+        ): Int = active.read(buffer, offset, length)
+
+        override fun getUri() = active.uri
+
+        override fun close() = active.close()
+    }
+
     private fun createDataSourceFactory(): DataSource.Factory {
         val resolvingFactory =
             ResolvingDataSource.Factory(
-                DeezerAudioAwareDataSourceFactory(
-                    createCacheDataSource(),
+                AmazonFfmpegAwareDataSourceFactory(
+                    DeezerAudioAwareDataSourceFactory(
+                        createCacheDataSource(),
+                    ),
                 ),
             ) { dataSpec ->
                 val explicitProviderMediaId =
@@ -4989,6 +5096,7 @@ class MusicService :
                 key.startsWith(QOBUZ_FALLBACK_CACHE_PREFIX) ||
                 isTidalFallbackCacheKey(key) ||
                 key.startsWith(DEEZER_FALLBACK_CACHE_PREFIX) ||
+                key.startsWith(APPLE_MUSIC_FALLBACK_CACHE_PREFIX) ||
                 key.startsWith(DIRECT_HTTP_AUDIO_CACHE_PREFIX)
     }
 
@@ -5204,10 +5312,10 @@ class MusicService :
                 mimeType = mimeType,
             )
         }
-        val tidalQuality = dataStore.get(TidalAudioQualityKey).toEnum(TidalAudioQuality.AAC_320)
+        val tidalQuality = dataStore.get<String>(TidalAudioQualityKey).toEnum(TidalAudioQuality.AAC_320)
         val tidalResolverEndpoints = dataStore.get(TidalResolverEndpointsKey, "")
         val deezerResolverUrl = dataStore.get(DeezerResolverUrlKey, DeezerAudioProvider.DEFAULT_RESOLVER_URL)
-        val deezerQuality = dataStore.get(DeezerAudioQualityKey).toEnum(DeezerAudioQuality.MP3_128)
+        val deezerQuality = dataStore.get<String>(DeezerAudioQualityKey).toEnum(DeezerAudioQuality.MP3_128)
         val deezerFastMode = dataStore.get(DeezerFastModeKey, false)
         val configuredDeezerProxyUrl = dataStore.get(DeezerProxyUrlKey, DeezerAudioProvider.DEFAULT_PROXY_URL)
         val deezerProxyUrl = DeezerAudioProvider.effectiveProxyUrl(
@@ -5227,7 +5335,7 @@ class MusicService :
             ?: InstagramAudioProvider.DEFAULT_APP_ID
         val instagramUuid = dataStore.get(InstagramUuidKey, "")
         val soundCloudAuthToken = dataStore.get(SoundCloudAuthTokenKey, "")
-        val soundCloudQuality = dataStore.get(SoundCloudAudioQualityKey).toEnum(SoundCloudAudioQuality.AAC_160)
+        val soundCloudQuality = dataStore.get<String>(SoundCloudAudioQualityKey).toEnum(SoundCloudAudioQuality.AAC_160)
         val directTidalMediaId = TidalAudioProvider.isTidalTrackId(mediaId)
         val directDeezerMediaId = DeezerAudioProvider.isDeezerTrackId(mediaId)
         val directSoundCloudMediaId = SoundCloudAudioProvider.isSoundCloudUrl(mediaId)
@@ -5272,6 +5380,15 @@ class MusicService :
                 mimeType = mimeType,
             )
 
+        fun AppleAudioProvider.Resolved.toPlaybackResolution(): PlaybackStreamResolution =
+            PlaybackStreamResolution(
+                uri = mediaUri,
+                expiresAtMs = expiresAtMs,
+                cacheKey = appleMusicFallbackCacheKey(mediaId),
+                format = appleMusicFallbackFormat(mediaId, this),
+                mimeType = mimeType,
+            )
+
         fun throwProviderFailure(
             provider: String,
             error: Throwable?,
@@ -5298,6 +5415,8 @@ class MusicService :
             Result.failure(IllegalStateException("Amazon Music not enabled"))
         var instagramAttempt: Result<InstagramAudioProvider.Resolved> =
             Result.failure(IllegalStateException("Instagram audio not enabled"))
+        var appleAttempt: Result<AppleAudioProvider.Resolved> =
+            Result.failure(IllegalStateException("Apple Music not enabled"))
         var youtubeAttempt: Result<PlaybackStreamResolution> =
             Result.failure(IllegalStateException("YouTube Music not attempted yet"))
         var qobuzAttempt: Result<QobuzAudioProvider.Resolved> =
@@ -5417,25 +5536,58 @@ class MusicService :
 
                     amazonAttempt.getOrNull()?.let { resolved ->
                         Timber.tag("MusicService").i("Using Amazon Music stream for $mediaId: ${resolved.label}")
+                        // Stash the already-known track duration (from local DB/queued metadata,
+                        // not from Amazon) so AmazonFfmpegAwareDataSource can write a correct
+                        // WAV data-chunk size instead of leaving duration unknown - see
+                        // knownDurationMsByTrackId below.
+                        val durationMs = song?.song?.duration
+                            ?.takeIf { it > 0 }
+                            ?.toLong()
+                            ?.times(1000L)
+                            ?: queuedMetadata?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
+                        if (durationMs != null) {
+                            knownDurationMsByTrackId[resolved.trackId] = durationMs
+                            knownDurationMsByTrackId[mediaId] = durationMs
+                        }
                         val isAtmos = resolved.codecs.lowercase().contains("eac3")
-                        val localPath = if (isAtmos) {
-                            AmazonAtmosDecryptor.prepareStream(this@MusicService, resolved)
-                        } else {
-                            AmazonFfmpegDecryptor.prepareStream(this@MusicService, resolved)
+                        if (isAtmos) {
+                            // Atmos/EAC3 still goes through the existing blocking decrypt -
+                            // AmazonFfmpegDataSource only handles the FLAC (-f flac) case below.
+                            val localPath = AmazonAtmosDecryptor.prepareStream(this@MusicService, resolved)
+                            return PlaybackStreamResolution(
+                                uri = android.net.Uri.fromFile(File(localPath)).toString(),
+                                expiresAtMs = resolved.expiresAtMs,
+                                cacheKey = amazonFallbackCacheKey(mediaId),
+                                format = amazonFallbackFormat(mediaId, resolved).copy(
+                                    itag = AMAZON_ATMOS_ITAG,
+                                    mimeType = MimeTypes.AUDIO_MP4,
+                                ),
+                                mimeType = MimeTypes.AUDIO_MP4,
+                            )
                         }
 
-                        val mimeType = if (isAtmos) MimeTypes.AUDIO_MP4 else MimeTypes.AUDIO_FLAC
-                        val itag = if (isAtmos) AMAZON_ATMOS_ITAG else AMAZON_FLAC_ITAG
-
+                        // FLAC path: don't block here on a full download + FFmpeg pass.
+                        // createMediaSource() picks this resolution up via
+                        // AmazonAudioProvider.resolvedFor(asin) and wires an
+                        // AmazonFfmpegDataSource that streams the CDN URL straight into FFmpeg,
+                        // decrypting progressively as bytes arrive and teeing the result into
+                        // the same cache slot for the next play.
+                        val cachedFlac = AmazonFfmpegDecryptor.getCachedFlac(resolved.trackId)
+                        val streamUri = if (cachedFlac != null && cachedFlac.exists() && cachedFlac.length() > 0) {
+                            Timber.tag("MusicService").d("Amazon FFmpeg cache hit for $mediaId -> ${cachedFlac.absolutePath}")
+                            android.net.Uri.fromFile(cachedFlac).toString()
+                        } else {
+                            resolved.mediaUri
+                        }
                         return PlaybackStreamResolution(
-                            uri = android.net.Uri.fromFile(File(localPath)).toString(),
+                            uri = streamUri,
                             expiresAtMs = resolved.expiresAtMs,
                             cacheKey = amazonFallbackCacheKey(mediaId),
                             format = amazonFallbackFormat(mediaId, resolved).copy(
-                                itag = itag,
-                                mimeType = mimeType,
+                                itag = AMAZON_FLAC_ITAG,
+                                mimeType = MimeTypes.AUDIO_FLAC,
                             ),
-                            mimeType = mimeType,
+                            mimeType = MimeTypes.AUDIO_FLAC,
                         )
                     }
                     if (stopOnProviderError) {
@@ -5475,6 +5627,28 @@ class MusicService :
                     }
                     if (stopOnProviderError) {
                         throwProviderFailure("YouTube Music", youtubeAttempt.exceptionOrNull())
+                    }
+                }
+                AudioProviderOrderItem.APPLE_MUSIC -> {
+                    attemptedProviders += provider
+                    appleAttempt = runCatching {
+                        AppleAudioProvider.resolve(
+                            AppleAudioProvider.Query(
+                                song = song?.song?.title ?: queuedMetadata?.title ?: mediaId,
+                                artist = song?.orderedArtists?.firstOrNull()?.name ?: queuedMetadata?.artists?.firstOrNull()?.name ?: "",
+                                album = song?.song?.albumName ?: song?.album?.title ?: queuedMetadata?.album?.title,
+                                isrc = ProviderIsrc.firstOf(mediaId, song?.song?.id),
+                                durationMs = (song?.song?.duration ?: (queuedMetadata?.duration))?.toLong()?.times(1000L),
+                                quality = dataStore.get<String>(AppleAudioQualityKey).toEnum(AppleAudioQuality.AAC),
+                            )
+                        )
+                    }
+                    appleAttempt.getOrNull()?.let { resolved ->
+                        Timber.tag("MusicService").i("Using Apple Music stream for $mediaId: ${resolved.title}")
+                        return resolved.toPlaybackResolution()
+                    }
+                    if (stopOnProviderError) {
+                        throwProviderFailure("Apple Music", appleAttempt.exceptionOrNull())
                     }
                 }
                 AudioProviderOrderItem.QOBUZ -> {
@@ -5547,11 +5721,18 @@ class MusicService :
         } else {
             ""
         }
+        val appleDetail = if (attemptedProviders.contains(AudioProviderOrderItem.APPLE_MUSIC)) {
+            appleAttempt.exceptionOrNull()?.readableMessage()
+                ?.let { "Apple Music failed: $it; " }
+                .orEmpty()
+        } else {
+            ""
+        }
         val qobuzDetail = qobuzAttempt.exceptionOrNull()?.readableMessage()
             ?.let { "Qobuz failed: $it; " }
             .orEmpty()
         throw PlaybackException(
-            "${qobuzDetail}${tidalDetail}${deezerDetail}${instagramDetail}SoundCloud failed: ${soundCloudError.readableMessage()}; YouTube failed: ${youtubeError.readableMessage()}",
+            "${qobuzDetail}${tidalDetail}${deezerDetail}${instagramDetail}${appleDetail}SoundCloud failed: ${soundCloudError.readableMessage()}; YouTube failed: ${youtubeError.readableMessage()}",
             youtubeError,
             PlaybackException.ERROR_CODE_REMOTE_ERROR,
         )
@@ -5748,8 +5929,8 @@ class MusicService :
             ?.times(1000L)
             ?: queuedMetadata?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
 
-        val country = runBlocking { applicationContext.dataStore.get(ContentCountryKey, "US") }
-        val quality = runBlocking { applicationContext.dataStore.get(AmazonAudioQualityKey).toEnum(AmazonAudioQuality.HI_RES).name }
+        val country = runBlocking { dataStore.get(ContentCountryKey, "US") }
+        val quality = runBlocking { dataStore.get<String>(AmazonAudioQualityKey).toEnum(AmazonAudioQuality.HI_RES).name }
 
         return AmazonAudioProvider.Query(
             mediaId = mediaId,
@@ -6292,28 +6473,6 @@ class MusicService :
             val uri = resolvedItem.localConfiguration?.uri
             val streamUrl = uri?.toString() ?: ""
 
-            // --- Amazon Music FFmpeg decryption ---
-            // Amazon CMAF streams are encrypted MP4 containers. FFmpeg decrypts them
-            // to clear FLAC via `prepareStream()` (cached locally). If a cached FLAC
-            // exists we point ExoPlayer at the local file directly.
-            if (resolvedItem.isAmazonCdnStream()) {
-                val asin = resolvedItem.mediaId.toAmazonAsinOrNull() ?: resolvedItem.mediaId
-                val cachedFlac = AmazonFfmpegDecryptor.getCachedFlac(asin)
-                if (cachedFlac != null && cachedFlac.exists() && cachedFlac.length() > 0) {
-                    val localItem = resolvedItem.buildUpon()
-                        .setUri(android.net.Uri.fromFile(cachedFlac))
-                        .setMimeType(MimeTypes.AUDIO_FLAC)
-                        .build()
-                    Timber.tag(TAG).d("Amazon FFmpeg cache hit for ${resolvedItem.mediaId} -> ${cachedFlac.absolutePath}")
-                    return defaultFactory.createMediaSource(localItem)
-                }
-                // No cached decrypt yet — the prepareStream() call happens earlier
-                // in withResolvedPlaybackStream(). If we reach here it means decrypt
-                // hasn't completed, fall through to default (which will likely fail
-                // and trigger a retry after prepareStream finishes).
-                Timber.tag(TAG).w("Amazon FLAC not yet ready for ${resolvedItem.mediaId}, falling through")
-            }
-            // --- END Amazon Music FFmpeg decryption ---
             val finalFactory: DataSource.Factory = dataSourceFactory
             val isHlsSource =
                 uri != null &&
@@ -7737,7 +7896,13 @@ class MusicService :
         if (!player.hasNextMediaItem() && player.repeatMode != REPEAT_MODE_ONE) return
 
         val triggerTime = player.duration - mixProfile.durationMs
-        val delayMs = triggerTime - player.currentPosition
+        val phraseAlignedTrigger =
+            if (mixProfile.preset == MetroMixPreset.AUTOMIX) {
+                alignToPhraseStart(triggerTime, player.duration)
+            } else {
+                triggerTime
+            }
+        val delayMs = phraseAlignedTrigger - player.currentPosition
         pendingMetroMixProfile = mixProfile
         if (delayMs <= 250L) {
             startCrossfade()
@@ -7755,6 +7920,29 @@ class MusicService :
             }
     }
 
+    /**
+     * Snaps the natural crossfade trigger point back to the nearest 8-bar
+     * phrase boundary of the currently playing track, so Automix transitions
+     * start where a DJ actually would - at a structural boundary - instead of
+     * at an arbitrary fixed offset from the end of the file. Falls back to the
+     * natural trigger time whenever BPM is unavailable or snapping would land
+     * implausibly close to the start of the track.
+     */
+    private fun alignToPhraseStart(
+        naturalTriggerMs: Long,
+        trackDurationMs: Long,
+    ): Long {
+        val bpm = player.currentMediaItem?.metadata?.bpm?.takeIf { it in 40f..240f } ?: return naturalTriggerMs
+        val barMs = 60_000f / bpm * 4f // 4/4 assumed - the overwhelming majority of streamed music
+        val phraseMs = (barMs * 8f).toLong().coerceAtLeast(1L) // 8-bar phrase, the standard pop/EDM unit
+
+        // Snap to the phrase boundary at or before the natural trigger point,
+        // never later - we don't want to shorten the outgoing track's own tail.
+        val snapped = (naturalTriggerMs / phraseMs) * phraseMs
+        val minSensibleTriggerMs = (trackDurationMs * 0.15).toLong()
+        return if (snapped in minSensibleTriggerMs..naturalTriggerMs) snapped else naturalTriggerMs
+    }
+
     private fun FormatEntity.isAlacFormat(): Boolean =
         codecs.contains("alac", ignoreCase = true) ||
                 mimeType.contains("alac", ignoreCase = true)
@@ -7770,6 +7958,7 @@ class MusicService :
             DEEZER_FALLBACK_ITAG,
             SOUNDCLOUD_FALLBACK_ITAG,
             INSTAGRAM_FALLBACK_ITAG,
+            APPLE_MUSIC_FALLBACK_ITAG,
             DIRECT_HTTP_AUDIO_ITAG,
         )
 
@@ -7870,6 +8059,49 @@ class MusicService :
         return current.albumTitle != null && current.albumTitle == next.albumTitle
     }
 
+    /**
+     * Computes the full Automix transition plan from BPM + Camelot key on both
+     * tracks: shared target tempo, per-track speed ratios, a beat-phase seek
+     * offset for the incoming track, and a harmonic-mixing-driven duration/EQ
+     * adjustment. Returns null when either track is missing BPM data (the
+     * caller falls back to the plain equal-power AUTOMIX curve in that case).
+     */
+    private fun buildAutomixPlan(
+        outgoing: MediaMetadata?,
+        incoming: MediaMetadata?,
+        outgoingPositionMs: Long,
+    ): AutomixPlan? {
+        val bpmA = outgoing?.bpm?.takeIf { it in 40f..240f } ?: return null
+        val bpmB = incoming?.bpm?.takeIf { it in 40f..240f } ?: return null
+        val targetBpm = (bpmA + bpmB) / 2f
+        val speedA = (targetBpm / bpmA).coerceIn(0.92f, 1.08f)
+        val speedB = (targetBpm / bpmB).coerceIn(0.92f, 1.08f)
+
+        // Beat-phase alignment: assume both tracks' downbeat 1 lands at
+        // track-time 0 (the standard assumption absent a true onset/beat
+        // tracker), find how far track A currently sits into its own beat
+        // cycle at tempo-matched speed, and start track B at the equivalent
+        // point in its cycle so the two beat grids line up from the first bar.
+        val beatMsA = 60_000f / (bpmA * speedA)
+        val beatMsB = 60_000f / (bpmB * speedB)
+        val phaseA = outgoingPositionMs.toFloat().mod(beatMsA)
+        val phaseOffsetMs = ((phaseA / beatMsA) * beatMsB).toLong().coerceIn(0L, beatMsB.toLong().coerceAtLeast(1L) - 1L)
+
+        val hint = harmonicMixHint(outgoing.keySignature, incoming.keySignature)
+
+        return AutomixPlan(
+            bpmA = bpmA,
+            bpmB = bpmB,
+            targetBpm = targetBpm,
+            speedA = speedA,
+            speedB = speedB,
+            phaseOffsetMs = phaseOffsetMs,
+            keyCompatibility = hint.compatibility,
+            durationScale = hint.durationScale,
+            bassSeparation = hint.bassSeparation,
+        )
+    }
+
     private fun startCrossfade() {
         if (isCrossfading) return
         if (secondaryPlayer != null) return
@@ -7879,6 +8111,7 @@ class MusicService :
         activeCrossfadeDurationMs = mixProfile.durationMs
         activeMetroMixRuntimePreset = mixProfile.preset
         activeMetroMixRuntimeProfile = mixProfile
+        activeAutomixPlan = null
 
         // Preserve player state before creating the secondary player
         // Use runBlocking to ensure we get the correct state from DataStore
@@ -7894,6 +8127,32 @@ class MusicService :
             }
         if (targetIndex == C.INDEX_UNSET) return
         val targetMediaItem = runCatching { player.getMediaItemAt(targetIndex) }.getOrNull()
+
+        if (mixProfile.preset == MetroMixPreset.AUTOMIX) {
+            val plan =
+                buildAutomixPlan(
+                    outgoing = player.currentMediaItem?.metadata,
+                    incoming = targetMediaItem?.metadata,
+                    outgoingPositionMs = player.currentPosition,
+                )
+            activeAutomixPlan = plan
+            if (plan != null) {
+                // Harmonic mixing drives blend width: compatible keys sustain a
+                // longer overlap, clashing keys get in and out fast.
+                activeCrossfadeDurationMs = (activeCrossfadeDurationMs * plan.durationScale).toLong().coerceIn(1_500L, 20_000L)
+                Timber.tag(TAG).d(
+                    "Automix plan: %.1f->%.1f bpm (target %.1f), speed %.3f/%.3f, phase +%dms, key=%s, duration=%dms",
+                    plan.bpmA,
+                    plan.bpmB,
+                    plan.targetBpm,
+                    plan.speedA,
+                    plan.speedB,
+                    plan.phaseOffsetMs,
+                    plan.keyCompatibility,
+                    activeCrossfadeDurationMs,
+                )
+            }
+        }
 
         secondaryPlayer = createExoPlayer(publishToUi = false)
         val secPlayer = secondaryPlayer!!
@@ -7930,8 +8189,10 @@ class MusicService :
         }
 
         secPlayer.setMediaItems(items)
-        // Seek to target track (next track, or current track for repeat-one)
-        secPlayer.seekTo(targetIndex, 0)
+        // Seek to target track (next track, or current track for repeat-one).
+        // Automix nudges the start position into the incoming track's beat
+        // cycle so its downbeat lines up with the outgoing track's grid.
+        secPlayer.seekTo(targetIndex, activeAutomixPlan?.phaseOffsetMs ?: 0L)
         secPlayer.volume = 0f
 
         // Copy repeat and shuffle state to the new player
@@ -7995,6 +8256,17 @@ class MusicService :
             MetroMixPreset.SMOOTH -> {
                 val duck = centerDuck(0.10f)
                 pair(equalPowerIn(smooth(p)), equalPowerOut(smooth(p)), duck)
+            }
+
+            MetroMixPreset.AUTOMIX -> {
+                // Full-width equal-power blend across the tempo-synced window; the
+                // actual beat/tempo alignment happens via playback speed ramping
+                // in the crossfade tick loop (see applyAutomixTempoSync), so the
+                // volume curve itself just needs to be a clean, wide, low-duck
+                // blend that won't fight the tempo ramp.
+                val fadeIn = equalPowerIn(smooth(range(p, 0.02f, 0.98f)))
+                val fadeOut = equalPowerOut(smooth(range(p, 0.02f, 0.98f)))
+                pair(fadeIn, fadeOut, centerDuck(0.09f))
             }
 
             MetroMixPreset.BEAT_BLEND -> {
@@ -8162,13 +8434,27 @@ class MusicService :
                 val fadingEq = playerEqProcessors[fadingPlayer as Player]
                 val currentEq = playerEqProcessors[player as Player]
 
-                if (metroMixPreset == MetroMixPreset.BASS_SWAP) {
+                if (metroMixPreset == MetroMixPreset.BASS_SWAP ||
+                    (metroMixPreset == MetroMixPreset.AUTOMIX && (activeAutomixPlan?.bassSeparation ?: 0f) > 0.05f)
+                ) {
                     val bassFilter = ParametricEQBand(frequency = 100.0, gain = 0.0, q = 0.7, filterType = FilterType.LSC)
                     fadingEq?.setMetroMixBands(listOf(bassFilter))
                     currentEq?.setMetroMixBands(listOf(bassFilter))
                 }
 
+                // AUTOMIX: reuse the plan computed at startCrossfade time (same
+                // numbers that were used to phase-align the beat grids at seek
+                // time) rather than recomputing BPM here, so the tempo ramp and
+                // the phase alignment never drift apart mid-transition.
+                val automixPlan = activeAutomixPlan
+                val automixSpeedA = automixPlan?.speedA
+                val automixSpeedB = automixPlan?.speedB
+                // Clashing keys get extra low-end separation on the outgoing
+                // track while the two overlap, so the dissonance is less audible.
+                val automixBassDuck = automixPlan?.bassSeparation ?: 0f
+
                 fun range(p: Float, start: Float, end: Float) = ((p - start) / (end - start)).coerceIn(0f, 1f)
+                fun smooth(value: Float) = value.coerceIn(0f, 1f).let { it * it * (3f - 2f * it) }
 
                 for (i in 0..steps) {
                     if (!isActive) break
@@ -8183,6 +8469,21 @@ class MusicService :
                     try {
                         player.volume = startVolume * fadeIn
                         fadingPlayer?.volume = startVolume * fadeOut
+
+                        if (automixSpeedA != null && automixSpeedB != null) {
+                            // Ease into the tempo-matched speed and ease back out to 1.0x by
+                            // the edges of the window, so the very start/end of playback for
+                            // each track is never audibly pitched.
+                            val tempoBlend = smooth(range(progress, 0.05f, 0.5f)) - smooth(range(progress, 0.5f, 0.95f))
+                            val speedA = 1f + (automixSpeedA - 1f) * tempoBlend
+                            val speedB = 1f + (automixSpeedB - 1f) * tempoBlend
+                            // Explicit pitch=1f is required here: Sonic only gives
+                            // pitch-preserving time-stretch when pitch is pinned to 1,
+                            // otherwise the single-arg constructor ties pitch to speed
+                            // and you get the chipmunk/slowdown effect instead.
+                            fadingPlayer?.playbackParameters = PlaybackParameters(speedA.coerceIn(0.85f, 1.15f), 1f)
+                            player.playbackParameters = PlaybackParameters(speedB.coerceIn(0.85f, 1.15f), 1f)
+                        }
 
                         // Apply dynamic EQ effects
                         when (metroMixPreset) {
@@ -8201,6 +8502,16 @@ class MusicService :
                                 val vocalDuck = range(progress, 0.05f, 0.45f) * -22.0
                                 fadingEq?.updateMetroMixGain(1, vocalDuck) // Assuming index 1 is vocal band
                             }
+                            MetroMixPreset.AUTOMIX -> {
+                                if (automixBassDuck > 0.05f) {
+                                    // Peaks at the center of the transition where both tracks'
+                                    // low end overlaps most; keyed off harmonic compatibility so
+                                    // clashing keys get more separation than compatible ones.
+                                    val centerWeight = 1f - kotlin.math.abs(2f * progress - 1f)
+                                    val duckDb = -24.0 * automixBassDuck * centerWeight
+                                    fadingEq?.updateMetroMixGain(0, duckDb)
+                                }
+                            }
                             else -> {}
                         }
                     } catch (e: Exception) {
@@ -8215,6 +8526,11 @@ class MusicService :
                     player.volume = startVolume
                     fadingEq?.setMetroMixBands(emptyList())
                     currentEq?.setMetroMixBands(emptyList())
+                    if (automixSpeedA != null && automixSpeedB != null) {
+                        // The fading player is about to be released; the surviving player
+                        // must land back on normal speed or it'll keep playing pitched.
+                        player.playbackParameters = PlaybackParameters(1f, 1f)
+                    }
                 } catch (e: Exception) {
                 }
 
@@ -8237,6 +8553,7 @@ class MusicService :
         isCrossfading = false
         activeMetroMixRuntimePreset = null
         activeMetroMixRuntimeProfile = null
+        activeAutomixPlan = null
         pendingMetroMixProfile = null
         if (scheduleNext) {
             scheduleCrossfade()
@@ -8256,6 +8573,7 @@ class MusicService :
         isCrossfading = false
         activeMetroMixRuntimePreset = null
         activeMetroMixRuntimeProfile = null
+        activeAutomixPlan = null
         pendingMetroMixProfile = null
         applyEffectiveVolume()
         sleepTimer.notifySongTransition()
@@ -8336,6 +8654,7 @@ class MusicService :
         private const val AMAZON_FALLBACK_ITAG = 100_045
         private const val AMAZON_FLAC_ITAG = 100_046
         private const val AMAZON_ATMOS_ITAG = 100_047
+        const val APPLE_MUSIC_FALLBACK_ITAG = 100_050
         private const val DIRECT_HTTP_AUDIO_ITAG = 100_051
         private const val DISCORD_RPC_MAX_IMAGE_URL_LENGTH = 300
         private const val OLD_QOBUZ_FALLBACK_CACHE_PREFIX = "qobuz-fallback:"
@@ -8344,6 +8663,7 @@ class MusicService :
         private const val OLD_TIDAL_FALLBACK_CACHE_PREFIX = "tidal-flac-fallback:"
         private const val TIDAL_FALLBACK_CACHE_PREFIX = "tidal-flac-fallback-temp-v1:"
         private const val DEEZER_FALLBACK_CACHE_PREFIX = "deezer-fallback-audio:"
+        private const val APPLE_MUSIC_FALLBACK_CACHE_PREFIX = "apple-music-fallback-audio:"
         private const val SOUNDCLOUD_FALLBACK_CACHE_PREFIX = "soundcloud-fallback-mp3:"
         private const val INSTAGRAM_FALLBACK_CACHE_PREFIX = "instagram-fallback-audio:"
         private const val DIRECT_HTTP_AUDIO_CACHE_PREFIX = "direct-http-audio:"
@@ -8362,6 +8682,8 @@ class MusicService :
         private fun tidalFallbackCacheKey(mediaId: String) = "$TIDAL_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun deezerFallbackCacheKey(mediaId: String) = "$DEEZER_FALLBACK_CACHE_PREFIX$mediaId"
+
+        private fun appleMusicFallbackCacheKey(mediaId: String) = "$APPLE_MUSIC_FALLBACK_CACHE_PREFIX$mediaId"
 
         private fun pendingTidalManifestUri(
             mediaId: String,
@@ -8395,6 +8717,7 @@ class MusicService :
                     isTidalFallbackCacheKey(key) ||
                     isAmazonFallbackCacheKey(key) ||
                     key.startsWith(DEEZER_FALLBACK_CACHE_PREFIX) ||
+                    key.startsWith(APPLE_MUSIC_FALLBACK_CACHE_PREFIX) ||
                     key.startsWith(SOUNDCLOUD_FALLBACK_CACHE_PREFIX) ||
                     key.startsWith(INSTAGRAM_FALLBACK_CACHE_PREFIX) ||
                     key.startsWith(DIRECT_HTTP_AUDIO_CACHE_PREFIX) ||
@@ -8472,6 +8795,8 @@ class MusicService :
                 .removePrefix(TIDAL_FALLBACK_CACHE_PREFIX)
                 .removePrefix(OLD_TIDAL_FALLBACK_CACHE_PREFIX)
                 .removePrefix(DEEZER_FALLBACK_CACHE_PREFIX)
+                .removePrefix(APPLE_MUSIC_FALLBACK_CACHE_PREFIX)
+                .removePrefix(AMAZON_FALLBACK_CACHE_PREFIX)
                 .removePrefix(SOUNDCLOUD_FALLBACK_CACHE_PREFIX)
                 .removePrefix(INSTAGRAM_FALLBACK_CACHE_PREFIX)
                 .removePrefix(DIRECT_HTTP_AUDIO_CACHE_PREFIX)
@@ -8490,6 +8815,23 @@ class MusicService :
                 codecs = resolved.codecs,
                 bitrate = resolved.bitrate,
                 sampleRate = resolved.sampleRate,
+                contentLength = 0L,
+                loudnessDb = null,
+                perceptualLoudnessDb = null,
+                playbackUrl = null,
+            )
+
+        private fun appleMusicFallbackFormat(
+            mediaId: String,
+            resolved: AppleAudioProvider.Resolved,
+        ): FormatEntity =
+            FormatEntity(
+                id = mediaId,
+                itag = APPLE_MUSIC_FALLBACK_ITAG,
+                mimeType = resolved.mimeType,
+                codecs = resolved.codecs,
+                bitrate = resolved.bitrate,
+                sampleRate = 44100,
                 contentLength = 0L,
                 loudnessDb = null,
                 perceptualLoudnessDb = null,

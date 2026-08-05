@@ -74,11 +74,16 @@ object IsrcResolver {
         resolved
     }
 
-    // NOTE: DeezerAudioProvider.Query's exact constructor wasn't in the files
-    // provided for this change — ProviderMatchSearch.kt calls it with a
-    // non-null DeezerAudioQuality (via DeezerAudioQualityKey). Match that
-    // shape here (swap the `quality` argument for a real default enum
-    // value, e.g. DeezerAudioQuality.MP3_128) if this doesn't compile as-is.
+    // Uses DeezerAudioProvider.findBestMatch, which runs the same
+    // ISRC-first -> scored title/artist/album/duration search -> song.link
+    // fallback chain used for actual playback resolution. This matters:
+    // a naive "first search result that happens to carry an ISRC" can
+    // easily grab a cover, remix, or same-titled track by a different
+    // artist, which then silently poisons the Apple Music canvas match
+    // (wrong ISRC -> wrong catalog track -> wrong canvas). Scoring against
+    // title + artist + duration before accepting a candidate is what makes
+    // this resolution path trustworthy enough to feed into ISRC-keyed
+    // lookups elsewhere in the app.
     private suspend fun resolveViaDeezer(song: String, artist: String, durationSeconds: Int?): String? =
         runCatching {
             val query = DeezerAudioProvider.Query(
@@ -90,11 +95,10 @@ object IsrcResolver {
                 durationMs = durationSeconds?.toLong()?.times(1000L),
                 resolverUrl = DeezerAudioProvider.DEFAULT_RESOLVER_URL,
                 quality = com.metrolist.music.constants.DeezerAudioQuality.MP3_128,
-                fastMode = true,
+                fastMode = false,
                 proxyUrl = DeezerAudioProvider.DEFAULT_PROXY_URL,
             )
-            DeezerAudioProvider.searchCandidates(query, limit = 3)
-                .firstOrNull { it.isrc != null }
+            DeezerAudioProvider.findBestMatch(query)
                 ?.isrc
                 ?.let { ProviderIsrc.normalize(it) }
         }.getOrNull()

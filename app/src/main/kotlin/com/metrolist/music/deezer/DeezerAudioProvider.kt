@@ -412,6 +412,24 @@ object DeezerAudioProvider {
         return results.values.toList()
     }
 
+    /**
+     * Finds the best-matching Deezer track for [query] using the same
+     * ISRC-first -> scored-search -> song.link fallback chain used for
+     * playback resolution, without resolving a playable stream.
+     *
+     * This is the accurate path for cross-provider identity lookups (e.g.
+     * [com.metrolist.music.providers.IsrcResolver] pulling an ISRC to feed
+     * the Apple Music canvas matcher): unlike [searchCandidates], which
+     * just returns raw search hits in API order, this scores every
+     * candidate against title + artist + album + duration
+     * ([selectBestTrack]) and only returns a match that clears
+     * [MIN_MATCH_SCORE], so a same-title-different-artist or
+     * different-duration-version result can't leak through as a false
+     * positive.
+     */
+    fun findBestMatch(query: Query): CandidateMetadata? =
+        (if (query.fastMode) findBestTrackFast(query) else findBestTrack(query))?.toCandidateMetadata()
+
     private fun findBestTrack(query: Query): MatchedTrack? {
         resolveIsrcTrack(query, fastMode = false)?.let { track ->
             Timber.tag("DeezerAudio").i("Resolved Deezer track ${track.trackId} through ISRC for ${query.title}")

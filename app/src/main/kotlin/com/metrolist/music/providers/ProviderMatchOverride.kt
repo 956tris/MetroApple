@@ -23,6 +23,7 @@ data class ProviderMatchOverride(
             AudioProviderOrderItem.YOUTUBE_MUSIC -> providerTrackId
             AudioProviderOrderItem.INSTAGRAM -> providerTrackId
             AudioProviderOrderItem.AMAZON_MUSIC -> "amazon:track:$providerTrackId"
+            AudioProviderOrderItem.APPLE_MUSIC -> "apple:track:$providerTrackId"
         }
 }
 
@@ -94,4 +95,5 @@ fun AudioProviderOrderItem.displayName(): String =
         AudioProviderOrderItem.YOUTUBE_MUSIC -> "YouTube Music"
         AudioProviderOrderItem.QOBUZ -> "Qobuz"
         AudioProviderOrderItem.AMAZON_MUSIC -> "Amazon Music"
+        AudioProviderOrderItem.APPLE_MUSIC -> "Apple Music"
     }
