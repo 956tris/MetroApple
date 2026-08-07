@@ -4539,7 +4539,7 @@ class MusicService :
             DEEZER_FALLBACK_ITAG -> "deezer"
             SOUNDCLOUD_FALLBACK_ITAG -> "soundcloud"
             INSTAGRAM_FALLBACK_ITAG -> "instagram"
-            APPLE_MUSIC_FALLBACK_ITAG -> "apple music"
+            APPLE_MUSIC_WRAPPER_ITAG, APPLE_MUSIC_FALLBACK_ITAG -> "apple music"
             AMAZON_FALLBACK_ITAG, AMAZON_FLAC_ITAG -> "amazon music"
             DIRECT_HTTP_AUDIO_ITAG -> "direct audio"
             else -> "youtube music".takeIf { itag > 0 }
@@ -8654,6 +8654,7 @@ class MusicService :
         private const val AMAZON_FALLBACK_ITAG = 100_045
         private const val AMAZON_FLAC_ITAG = 100_046
         private const val AMAZON_ATMOS_ITAG = 100_047
+        private const val APPLE_MUSIC_WRAPPER_ITAG = 100_001
         const val APPLE_MUSIC_FALLBACK_ITAG = 100_050
         private const val DIRECT_HTTP_AUDIO_ITAG = 100_051
         private const val DISCORD_RPC_MAX_IMAGE_URL_LENGTH = 300
