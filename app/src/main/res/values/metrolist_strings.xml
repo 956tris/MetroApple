@@ -1351,4 +1351,6 @@
     <string name="loudness_level_loud">Loud (-11 dB)</string>
     <string name="loudness_level_balanced">Balanced (-14 dB)</string>
     <string name="loudness_level_quiet">Quiet (-19 dB)</string>
+    <string name="discord_show_playback_details">Show playback details</string>
+    <string name="discord_show_playback_details_description">Shows bitrate and sample rate in Rich Presence</string>
 </resources>

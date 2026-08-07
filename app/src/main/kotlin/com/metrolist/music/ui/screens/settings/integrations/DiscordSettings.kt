@@ -89,6 +89,7 @@ import com.metrolist.music.constants.DiscordHideWhenSpotifyHistoryKey
 import com.metrolist.music.constants.DiscordInfoDismissedKey
 import com.metrolist.music.constants.DiscordNameKey
 import com.metrolist.music.constants.DiscordShowProviderKey
+import com.metrolist.music.constants.DiscordShowPlaybackDetailsKey
 import com.metrolist.music.constants.DiscordStatusKey
 import com.metrolist.music.constants.DiscordUseDetailsKey
 import com.metrolist.music.constants.DiscordUsernameKey
@@ -141,6 +142,8 @@ fun DiscordSettings(
     val (discordRPC, onDiscordRPCChange) = rememberPreference(EnableDiscordRPCKey, true)
     val (useDetails, onUseDetailsChange) = rememberPreference(DiscordUseDetailsKey, false)
     val (showProvider, onShowProviderChange) = rememberPreference(DiscordShowProviderKey, true)
+    val (showPlaybackDetails, onShowPlaybackDetailsChange) =
+        rememberPreference(DiscordShowPlaybackDetailsKey, false)
     val (hideWhenSpotifyHistory, onHideWhenSpotifyHistoryChange) =
         rememberPreference(DiscordHideWhenSpotifyHistoryKey, false)
     val (advancedMode, onAdvancedModeChange) = rememberPreference(DiscordAdvancedModeKey, false)
@@ -685,6 +688,34 @@ fun DiscordSettings(
                         enabled = isLoggedIn && discordRPC,
                         onClick = {
                             if (isLoggedIn && discordRPC) onShowProviderChange(!showProvider)
+                        },
+                    ),
+                    Material3SettingsItem(
+                        title = { Text(stringResource(R.string.discord_show_playback_details)) },
+                        description = {
+                            Text(stringResource(R.string.discord_show_playback_details_description))
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = showPlaybackDetails,
+                                onCheckedChange = onShowPlaybackDetailsChange,
+                                enabled = isLoggedIn && discordRPC,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (showPlaybackDetails) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                    )
+                                }
+                            )
+                        },
+                        enabled = isLoggedIn && discordRPC,
+                        onClick = {
+                            if (isLoggedIn && discordRPC) {
+                                onShowPlaybackDetailsChange(!showPlaybackDetails)
+                            }
                         },
                     ),
                     Material3SettingsItem(

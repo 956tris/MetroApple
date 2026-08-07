@@ -156,6 +156,7 @@ import com.metrolist.music.constants.DiscordButton2TextKey
 import com.metrolist.music.constants.DiscordButton2VisibleKey
 import com.metrolist.music.constants.DiscordHideWhenSpotifyHistoryKey
 import com.metrolist.music.constants.DiscordShowProviderKey
+import com.metrolist.music.constants.DiscordShowPlaybackDetailsKey
 import com.metrolist.music.constants.DiscordStatusKey
 import com.metrolist.music.constants.DiscordUseDetailsKey
 import com.metrolist.music.constants.DownloadCanvasMode
@@ -4329,6 +4330,7 @@ class MusicService :
 
         val useDetails = dataStore.get(DiscordUseDetailsKey, false)
         val showProvider = dataStore.get(DiscordShowProviderKey, true)
+        val showPlaybackDetails = dataStore.get(DiscordShowPlaybackDetailsKey, false)
         val advancedMode = dataStore.get(DiscordAdvancedModeKey, false)
 
         val b1Text = if (advancedMode) dataStore.get(DiscordButton1TextKey, "") else ""
@@ -4389,6 +4391,24 @@ class MusicService :
                             ?.lowercase(Locale.US)
                             ?.let { " [$it]" }
                             .orEmpty()
+
+                    val playbackDetails =
+                        if (showPlaybackDetails) {
+                            currentPlaybackFormat.value?.takeIf { it.id == mediaId }?.let { format ->
+                                val bitrateStr =
+                                    if (format.bitrate > 0) {
+                                            "${format.bitrate} kbps"
+                                    } else {
+                                        null
+                                    }
+                                val sampleRateStr =
+                                    format.sampleRate?.let { "${it / 1000f} kHz" }
+                                listOfNotNull(bitrateStr, sampleRateStr).joinToString(" • ")
+                            }
+                        } else {
+                            null
+                        }
+
                     val largeImage = discordRpcLargeImageUrl(song, mediaId)
                     val firstArtist = song.orderedArtists.firstOrNull()
                     val activity =
@@ -4396,7 +4416,12 @@ class MusicService :
                             name = "$baseName$providerSuffix",
                             type = "listening",
                             details = if (!useDetails) songTitle else artistNames,
-                            state = if (!useDetails) artistNames else songTitle,
+                            state =
+                                if (playbackDetails != null) {
+                                    "$artistNames | $playbackDetails"
+                                } else {
+                                    if (!useDetails) artistNames else songTitle
+                                },
                             startTimestamp = calculatedStartTime,
                             endTimestamp = calculatedEndTime,
                             largeImage = largeImage,
