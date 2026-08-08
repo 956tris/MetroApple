@@ -4397,7 +4397,7 @@ class MusicService :
                             currentPlaybackFormat.value?.takeIf { it.id == mediaId }?.let { format ->
                                 val bitrateStr =
                                     if (format.bitrate > 0) {
-                                            "${format.bitrate} kbps"
+                                        "${format.bitrate / 1000} kbps"
                                     } else {
                                         null
                                     }
