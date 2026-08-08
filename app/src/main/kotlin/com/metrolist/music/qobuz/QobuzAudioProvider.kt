@@ -26,8 +26,6 @@ object QobuzAudioProvider {
     const val BROWSER_USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
 
-    private const val KENNY_BASE_URL = "https://qobuz.kennyy.com.br"
-    private const val KENNY_MIRROR_BASE_URL = "https://qobuz2.kennyy.com.br"
     private const val STREAM_CACHE_MS = 5 * 60 * 1000L
     private const val MIN_DURATION_FOR_PREVIEW_REJECTION_MS = 75_000L
     private const val MAX_PREVIEW_DURATION_MS = 45_000L
@@ -39,11 +37,6 @@ object QobuzAudioProvider {
         KENNY,
     }
 
-    private enum class SearchBackend {
-        KENNY,
-        KENNY_MIRROR,
-    }
-
     data class Query(
         val mediaId: String,
         val title: String,
@@ -52,8 +45,8 @@ object QobuzAudioProvider {
         val isrc: String?,
         val durationMs: Long?,
         val countryCode: String,
-        val backend: ResolverBackend,
         val qualityCode: Int = 27,
+        val backend: ResolverBackend = ResolverBackend.KENNY,
         val customInstances: String? = null,
     )
 
@@ -115,19 +108,16 @@ object QobuzAudioProvider {
                 candidate.toHttpUrlOrNull()?.toString()?.trimEnd('/')
             }
             .distinctBy { it.lowercase(Locale.US) }
-            .takeIf { it.isNotEmpty() }
-            ?: listOf(KENNY_BASE_URL, KENNY_MIRROR_BASE_URL)
 
     fun normalizeResolverRegion(
         countryCode: String,
-        backend: ResolverBackend,
     ): String {
         val normalized = countryCode.trim().uppercase(Locale.US)
         return normalized.takeIf { it.matches(Regex("[A-Z]{2}")) } ?: "US"
     }
 
     fun resolve(query: Query): Resolved {
-        val resolverRegion = normalizeResolverRegion(query.countryCode, query.backend)
+        val resolverRegion = normalizeResolverRegion(query.countryCode)
         val streamCacheKey = query.cacheKey(resolverRegion)
         val now = System.currentTimeMillis()
         streamCache[streamCacheKey]
@@ -738,7 +728,6 @@ object QobuzAudioProvider {
         return listOf(
             mediaId,
             trackCacheKey(),
-            backend.name,
             resolverRegion,
             qualityCode.toString(),
         ).joinToString("::")

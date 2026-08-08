@@ -30,19 +30,14 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
-import com.metrolist.music.constants.QobuzBackend
-import com.metrolist.music.constants.QobuzBackendKey
-import com.metrolist.music.constants.QobuzBackendOptions
 import com.metrolist.music.constants.QobuzCountryKey
 import com.metrolist.music.constants.QobuzCustomInstancesKey
-import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.InfoLabel
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.TextFieldDialog
 import com.metrolist.music.ui.utils.backToMain
-import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import java.util.Locale
 
@@ -51,10 +46,6 @@ import java.util.Locale
 fun QobuzSettings(
     navController: NavController
 ) {
-    val (qobuzBackend, onQobuzBackendChange) = rememberEnumPreference(
-        QobuzBackendKey,
-        defaultValue = QobuzBackend.KENNY
-    )
     val (qobuzCountry, onQobuzCountryChange) = rememberPreference(
         QobuzCountryKey,
         defaultValue = "US"
@@ -64,27 +55,8 @@ fun QobuzSettings(
         defaultValue = ""
     )
 
-    var showBackendDialog by remember { mutableStateOf(false) }
     var showCountryDialog by remember { mutableStateOf(false) }
     var showInstancesDialog by remember { mutableStateOf(false) }
-
-    if (showBackendDialog) {
-        EnumDialog(
-            onDismiss = { showBackendDialog = false },
-            onSelect = {
-                onQobuzBackendChange(it)
-                showBackendDialog = false
-            },
-            title = stringResource(R.string.qobuz_backend),
-            current = qobuzBackend,
-            values = QobuzBackendOptions,
-            valueText = {
-                when (it) {
-                    QobuzBackend.KENNY -> stringResource(R.string.qobuz_backend_kenny)
-                }
-            }
-        )
-    }
 
     if (showCountryDialog) {
         TextFieldDialog(
@@ -140,18 +112,6 @@ fun QobuzSettings(
             title = stringResource(R.string.general),
             items = listOf(
                 Material3SettingsItem(
-                    icon = painterResource(R.drawable.settings),
-                    title = { Text(stringResource(R.string.qobuz_backend)) },
-                    description = {
-                        Text(
-                            when (qobuzBackend) {
-                                QobuzBackend.KENNY -> stringResource(R.string.qobuz_backend_kenny)
-                            }
-                        )
-                    },
-                    onClick = { showBackendDialog = true }
-                ),
-                Material3SettingsItem(
                     icon = painterResource(R.drawable.language),
                     title = { Text(stringResource(R.string.qobuz_country)) },
                     description = { Text(stringResource(R.string.qobuz_country_desc, qobuzCountry.uppercase(Locale.US))) },
@@ -175,6 +135,7 @@ fun QobuzSettings(
             )
         )
     }
+
 
     TopAppBar(
         title = { Text(stringResource(R.string.qobuz_integration)) },

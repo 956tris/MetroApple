@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 object ProviderHealthChecker {
@@ -30,6 +31,7 @@ object ProviderHealthChecker {
     private const val QOBUZ_HEALTH_QUERY = "yes and ariana grande"
     private const val QOBUZ_HEALTH_TRACK_ID = "256170850"
     private const val DEEZER_HEALTH_TRACK_ID = "3135556"
+    private const val APPLE_HEALTH_ISRC = "USUM71703861"
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     private val client =
@@ -73,11 +75,10 @@ object ProviderHealthChecker {
         val tidalResolverTargets =
             TidalAudioProvider.resolverEndpointBases(tidalResolverEndpoints)
                 .map { baseUrl ->
-                    val isDefault = baseUrl.equals(TidalAudioProvider.DEFAULT_RESOLVER_BASE_URL, ignoreCase = true)
-                    if (!isDefault) customTidalIndex += 1
-                    val name = TidalAudioProvider.resolverEndpointDisplayName(baseUrl, customTidalIndex)
+                    customTidalIndex += 1
+                    val name = "TIDAL Resolver $customTidalIndex"
                     getTarget(
-                        id = if (isDefault) "tidal_resolver_bini" else "tidal_resolver_custom_$customTidalIndex",
+                        id = "tidal_resolver_custom_$customTidalIndex",
                         group = "TIDAL",
                         name = name,
                         endpoint = "$baseUrl/track/?id=$TIDAL_HEALTH_TRACK_ID&quality=LOSSLESS",
@@ -87,18 +88,8 @@ object ProviderHealthChecker {
 
         val qobuzTargets = QobuzAudioProvider.resolverInstanceBases(qobuzCustomInstances)
             .mapIndexed { index, baseUrl ->
-                val isKenny = baseUrl.contains("kennyy.com.br")
-                val isKennyMirror = baseUrl.contains("qobuz2")
-                val name = if (isKenny) {
-                    if (isKennyMirror) "Kenny Mirror" else "Kenny"
-                } else {
-                    "Custom Qobuz ${index + 1}"
-                }
-                val id = if (isKenny) {
-                    if (isKennyMirror) "qobuz_kenny_mirror" else "qobuz_kenny"
-                } else {
-                    "qobuz_custom_$index"
-                }
+                val name = "Qobuz Resolver ${index + 1}"
+                val id = "qobuz_custom_$index"
                 qobuzSearchAndStreamTarget(
                     id = id,
                     name = name,
@@ -159,9 +150,78 @@ object ProviderHealthChecker {
                 detail = "Fallback Deezer audio resolver",
                 body = """{"formats":["MP3_128"],"ids":[$DEEZER_HEALTH_TRACK_ID],"fast":true}""",
             ),
+            getTarget(
+                id = "apple_token",
+                group = "Apple Music",
+                name = "Apple Music Token API",
+                endpoint = "https://yesitworkssomehow-funny-deeza-api-and-yeah.hf.space/apple/token",
+                detail = "Authorization token for Apple Music API",
+            ),
+            appleStreamTarget(),
             *tidalResolverTargets.toTypedArray(),
             *qobuzTargets.toTypedArray(),
         )
+    }
+
+    private fun appleStreamTarget(): Target =
+        Target(
+            id = "apple_stream_api",
+            group = "Apple Music",
+            name = "Apple Music Stream Resolver",
+            endpoint = "https://yesitworkssomehow-funi-lyric-api.hf.space/stream",
+            detail = "Direct stream resolution service",
+            requestFactory = { null },
+            customCheck = { target, startedAt -> checkAppleStream(target, startedAt) },
+        )
+
+    private fun checkAppleStream(
+        target: Target,
+        startedAt: Long,
+    ): Result {
+        // We need a token first
+        val token = runBlocking {
+            com.metrolist.music.apple.AppleMusicCanvasProvider.getToken()
+        } ?: return Result(target, Status.OFFLINE, elapsedMs(startedAt), "Could not fetch Apple Music token")
+
+        // Try to resolve the test ISRC to a song URL via AMP API
+        val ampUrl = com.metrolist.music.apple.AppleMusicCanvasProvider.buildAmpUrl(
+            "https://amp-api.music.apple.com/v1/catalog/us/songs",
+            mapOf("filter[isrc]" to APPLE_HEALTH_ISRC)
+        )
+        val ampRequest = com.metrolist.music.apple.AppleMusicCanvasProvider.ampRequest(ampUrl, token)
+        
+        val appleUrl = client.newCall(ampRequest).execute().use { response ->
+            if (!response.isSuccessful) {
+                return Result(
+                    target = target,
+                    status = Status.REACHABLE,
+                    latencyMs = elapsedMs(startedAt),
+                    message = "AMP API HTTP ${response.code}"
+                )
+            }
+            val payload = response.body.string()
+            val root = JSONObject(payload)
+            root.optJSONArray("data")?.optJSONObject(0)?.optJSONObject("attributes")?.optString("url")
+        } ?: return Result(target, Status.REACHABLE, elapsedMs(startedAt), "Could not find test track URL")
+
+        // Now check the actual stream resolver
+        val streamUrl = target.endpoint.toHttpUrlOrNull()?.newBuilder()
+            ?.addQueryParameter("url", appleUrl)
+            ?.addQueryParameter("codec", "aac-web")
+            ?.build()
+            ?: return Result(target, Status.OFFLINE, elapsedMs(startedAt), "Invalid stream URL")
+
+        val streamRequest = Request.Builder().url(streamUrl).get().header("User-Agent", USER_AGENT).build()
+        
+        return client.newCall(streamRequest).execute().use { response ->
+            val status = if (response.isSuccessful) Status.ONLINE else Status.REACHABLE
+            Result(
+                target = target,
+                status = status,
+                latencyMs = elapsedMs(startedAt),
+                message = if (response.isSuccessful) "Stream API OK" else "Stream API HTTP ${response.code}"
+            )
+        }
     }
 
     private fun deezerRenderProxyTarget(): Target =

@@ -181,8 +181,12 @@ val DeezerFastModeKey = booleanPreferencesKey("deezerFastMode")
 val DeezerProxyModeKey = stringPreferencesKey("deezerProxyMode")
 val DeezerProxyUrlKey = stringPreferencesKey("deezerProxyUrl")
 val QobuzCustomInstancesKey = stringPreferencesKey("qobuzCustomInstances")
-val QobuzBackendKey = stringPreferencesKey("qobuzBackend")
 val QobuzCountryKey = stringPreferencesKey("qobuzCountry")
+val QobuzBackendKey = stringPreferencesKey("qobuzBackend")
+
+enum class QobuzBackend {
+    KENNY,
+}
 val AmazonSearchApiUrlKey = stringPreferencesKey("amazonSearchApiUrl")
 val AmazonResolveApiUrlKey = stringPreferencesKey("amazonResolveApiUrl")
 val AmazonAudioQualityKey = stringPreferencesKey("amazonAudioQuality")
@@ -283,15 +287,6 @@ val SoundCloudAudioQualityOptions =
         SoundCloudAudioQuality.MP3_128,
         SoundCloudAudioQuality.AAC_96,
         SoundCloudAudioQuality.AAC_160,
-    )
-
-enum class QobuzBackend {
-    KENNY,
-}
-
-val QobuzBackendOptions =
-    listOf(
-        QobuzBackend.KENNY,
     )
 
 val AudioOffload = booleanPreferencesKey("enableOffload")

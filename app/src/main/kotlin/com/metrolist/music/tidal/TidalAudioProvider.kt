@@ -56,8 +56,7 @@ object TidalAudioProvider {
     private const val MIN_MATCH_SCORE = 90
     private const val STRONG_MATCH_SCORE = 150
     private const val REJECT_SCORE = -1_000_000
-    const val DEFAULT_RESOLVER_BASE_URL = "https://hifi.binimum.org"
-    private const val DEFAULT_RESOLVER_NAME = "Bini hifi-api"
+
     private val AMAZON_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'", Locale.US)
 
     data class Query(

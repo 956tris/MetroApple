@@ -553,7 +553,7 @@ constructor(
                                 isrc = ProviderIsrc.firstOf(mediaId, song?.song?.id),
                                 durationMs = song?.song?.duration?.toLong()?.times(1000L),
                                 countryCode = context.dataStore.get(QobuzCountryKey, "US"),
-                                backend = when (context.dataStore[QobuzBackendKey].toEnum(QobuzBackend.KENNY)) {
+                                backend = when (context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.KENNY)) {
                                     QobuzBackend.KENNY -> QobuzAudioProvider.ResolverBackend.KENNY
                                 },
                                 customInstances = context.dataStore.get(QobuzCustomInstancesKey, ""),

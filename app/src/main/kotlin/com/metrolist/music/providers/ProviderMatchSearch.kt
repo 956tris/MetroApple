@@ -156,7 +156,7 @@ object ProviderMatchSearch {
                     ),
                 )
             AudioProviderOrderItem.QOBUZ -> {
-                val backend = context.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.KENNY)
+                val backend = context.dataStore.get(QobuzBackendKey).toEnum<QobuzBackend>(QobuzBackend.KENNY)
                 val country = context.dataStore.get(QobuzCountryKey, "US")
                 val customInstances = context.dataStore.get(QobuzCustomInstancesKey, "")
                 QobuzAudioProvider.searchCandidates(
@@ -267,6 +267,6 @@ object ProviderMatchSearch {
 
     private fun QobuzBackend.toProviderBackend(): QobuzAudioProvider.ResolverBackend =
         when (this) {
-            QobuzBackend.KENNY -> QobuzAudioProvider.ResolverBackend.KENNY
+            QobuzBackend.KENNY -> QobuzAudioProvider. ResolverBackend.KENNY
         }
 }
