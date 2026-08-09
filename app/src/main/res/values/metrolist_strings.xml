@@ -91,6 +91,10 @@
     <string name="experimental_playback_diagnostics_desc">Writes provider attempt order, duration and result to Android logcat for troubleshooting.</string>
     <string name="experimental_accurate_provider_health">Accurate SoundCloud health rows</string>
     <string name="experimental_accurate_provider_health_desc">Prevents SoundCloud health-check results from overwriting each other in the provider health screen.</string>
+    <string name="experimental_preserve_song_cache_on_quality_change">Prefer cached audio after a quality change</string>
+    <string name="experimental_preserve_song_cache_on_quality_change_desc">Keeps cached audio when the selected quality changes. Playback can use the cached quality instead of downloading the new one.</string>
+    <string name="experimental_youtube_music_history_sync">Sync listens to YouTube Music history</string>
+    <string name="experimental_youtube_music_history_sync_desc">After a real listen, records the song in the signed-in YouTube Music account. This unofficial integration can stop working if YouTube changes it.</string>
     <string name="skip_next">Skip next</string>
     <string name="experimental_apple_music_cover_fade">Fade Apple Music cover into UI</string>
     <string name="experimental_apple_music_cover_fade_desc">Uses tall Apple Music motion art as a soft full-player backdrop when available. Experimental and off by default.</string>

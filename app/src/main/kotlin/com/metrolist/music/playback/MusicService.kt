@@ -119,7 +119,9 @@ import com.metrolist.music.constants.ExperimentalConfirmBeforeSkipKey
 import com.metrolist.music.constants.ExperimentalDeezerFirstKey
 import com.metrolist.music.constants.ExperimentalDeezerResolverFallbackKey
 import com.metrolist.music.constants.ExperimentalPlaybackDiagnosticsKey
+import com.metrolist.music.constants.ExperimentalPreserveSongCacheOnQualityChangeKey
 import com.metrolist.music.constants.ExperimentalProviderPlaybackTimeoutKey
+import com.metrolist.music.constants.ExperimentalYouTubeMusicHistorySyncKey
 import com.metrolist.music.constants.isPlaybackProvider
 import com.metrolist.music.playback.CanvasWallpaperService
 import com.metrolist.music.utils.PreferenceCache
@@ -483,6 +485,13 @@ class MusicService :
         }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val youtubeMusicHistorySyncManager =
+        YouTubeMusicHistorySyncManager(
+            scope = scope,
+            isEnabled = { dataStore.get(ExperimentalYouTubeMusicHistorySyncKey, false) },
+            isAuthenticated = { !YouTube.cookie.isNullOrBlank() },
+            reportPlayback = ::reportYouTubeMusicHistoryPlayback,
+        )
 
     private val binder = MusicBinder()
 
@@ -1144,34 +1153,38 @@ class MusicService :
                     InstagramAudioProvider.invalidate(mediaId)
                     YouTubeAudioProvider.invalidate(mediaId)
 
-                    // CRITICAL: Clear caches synchronously to prevent format parsing errors
-                    runBlocking(Dispatchers.IO) {
-                        try {
-                            playerCache.removeResource(mediaId)
-                            playerCache.removeResource(qobuzFallbackCacheKey(mediaId))
-                            playerCache.removeResource(tidalFallbackCacheKey(mediaId))
-                            playerCache.removeResource(deezerFallbackCacheKey(mediaId))
-                            playerCache.removeResource(soundCloudFallbackCacheKey(mediaId))
-                            playerCache.removeResource(instagramFallbackCacheKey(mediaId))
-                            playerCache.removeResource(directHttpAudioCacheKey(mediaId))
-                            playerCache.removeResource(youtubeFallbackCacheKey(mediaId))
-                            downloadCache.removeResource(mediaId)
-                            downloadCache.removeResource(qobuzFallbackCacheKey(mediaId))
-                            downloadCache.removeResource(tidalFallbackCacheKey(mediaId))
-                            downloadCache.removeResource(deezerFallbackCacheKey(mediaId))
-                            downloadCache.removeResource(soundCloudFallbackCacheKey(mediaId))
-                            downloadCache.removeResource(instagramFallbackCacheKey(mediaId))
-                            downloadCache.removeResource(directHttpAudioCacheKey(mediaId))
-                            downloadCache.removeResource(youtubeFallbackCacheKey(mediaId))
-                            Timber.tag("MusicService").d("Cleared player and download cache for $mediaId")
-                        } catch (e: Exception) {
-                            Timber.tag("MusicService").e(e, "Failed to clear cache for $mediaId")
+                    val preserveCachedAudio =
+                        dataStore.get(ExperimentalPreserveSongCacheOnQualityChangeKey, false)
+                    if (ExperimentalPlaybackCachePolicy.shouldClearCacheOnQualityChange(preserveCachedAudio)) {
+                        // Clear cache for the base behavior because formats from different sources can be incompatible.
+                        runBlocking(Dispatchers.IO) {
+                            try {
+                                playerCache.removeResource(mediaId)
+                                playerCache.removeResource(qobuzFallbackCacheKey(mediaId))
+                                playerCache.removeResource(tidalFallbackCacheKey(mediaId))
+                                playerCache.removeResource(deezerFallbackCacheKey(mediaId))
+                                playerCache.removeResource(soundCloudFallbackCacheKey(mediaId))
+                                playerCache.removeResource(instagramFallbackCacheKey(mediaId))
+                                playerCache.removeResource(directHttpAudioCacheKey(mediaId))
+                                playerCache.removeResource(youtubeFallbackCacheKey(mediaId))
+                                downloadCache.removeResource(mediaId)
+                                downloadCache.removeResource(qobuzFallbackCacheKey(mediaId))
+                                downloadCache.removeResource(tidalFallbackCacheKey(mediaId))
+                                downloadCache.removeResource(deezerFallbackCacheKey(mediaId))
+                                downloadCache.removeResource(soundCloudFallbackCacheKey(mediaId))
+                                downloadCache.removeResource(instagramFallbackCacheKey(mediaId))
+                                downloadCache.removeResource(directHttpAudioCacheKey(mediaId))
+                                downloadCache.removeResource(youtubeFallbackCacheKey(mediaId))
+                                Timber.tag("MusicService").d("Cleared player and download cache for $mediaId")
+                            } catch (e: Exception) {
+                                Timber.tag("MusicService").e(e, "Failed to clear cache for $mediaId")
+                            }
                         }
+                        bypassCacheForQualityChange.add(mediaId)
+                        Timber.tag("MusicService").d("Set bypass cache flag for $mediaId")
+                    } else {
+                        Timber.tag("MusicService").d("Keeping cached audio for $mediaId after quality change")
                     }
-
-                    // Set bypass flag so resolver skips cache checks
-                    bypassCacheForQualityChange.add(mediaId)
-                    Timber.tag("MusicService").d("Set bypass cache flag for $mediaId")
 
                     // Reload player at same position
                     player.stop()
@@ -3062,6 +3075,46 @@ class MusicService :
             .replace(Regex("\\s+"), " ")
             .trim()
 
+    private suspend fun reportYouTubeMusicHistoryPlayback(videoId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            repeat(2) { attempt ->
+                val playbackTrackingUrl =
+                    YouTube
+                        .player(videoId)
+                        .getOrNull()
+                        ?.playbackTracking
+                        ?.videostatsPlaybackUrl
+                        ?.baseUrl
+                        ?: return@withContext false
+
+                val response =
+                    YouTube
+                        .registerPlayback(playbackTracking = playbackTrackingUrl)
+                        .getOrNull()
+                        ?: return@repeat
+                if (response.status.value !in 200..299) return@repeat
+
+                delay(2.seconds)
+                val appearedInHistory =
+                    YouTube
+                        .musicHistory()
+                        .getOrNull()
+                        ?.sections
+                        ?.any { section -> section.songs.any { it.id == videoId } } == true
+                if (appearedInHistory) {
+                    Timber.tag(TAG).d("YouTube Music history synchronized for $videoId")
+                    return@withContext true
+                }
+                Timber.tag(TAG).w(
+                    "YouTube Music history verification failed for %s on attempt %d",
+                    videoId,
+                    attempt + 1,
+                )
+                delay(3.seconds)
+            }
+            false
+        }
+
     override fun onMediaItemTransition(
         mediaItem: MediaItem?,
         reason: Int,
@@ -3121,8 +3174,10 @@ class MusicService :
 
         val transitionDuration = currentPlaybackDurationIfReady()
         scrobbleManager?.onSongStop()
+        youtubeMusicHistorySyncManager.onSongStop()
         if (player.playWhenReady && player.playbackState == Player.STATE_READY) {
             scrobbleManager?.onSongStart(transitionedMetadata, duration = transitionDuration)
+            youtubeMusicHistorySyncManager.onSongStart(transitionedMetadata, durationMs = transitionDuration)
         }
         if (player.playWhenReady && player.playbackState == Player.STATE_READY && transitionedMetadata != null) {
             scope.launch {
@@ -3263,6 +3318,12 @@ class MusicService :
                 duration = currentPlaybackDurationIfReady(),
             )
             if (player.playWhenReady) {
+                youtubeMusicHistorySyncManager.onSongStart(
+                    metadata = player.currentMetadata,
+                    durationMs = currentPlaybackDurationIfReady(),
+                )
+            }
+            if (player.playWhenReady) {
                 currentSong.value?.let { song ->
                     updateDiscordRPC(song)
                 }
@@ -3274,6 +3335,7 @@ class MusicService :
             currentLivePlaybackBitrate.value = null
             lastLivePlaybackBitrateUpdateMs = 0L
             scrobbleManager?.onSongStop()
+            youtubeMusicHistorySyncManager.onSongStop()
             discordUpdateJob?.cancel()
             stopSpotifyListeningHistory()
         }
@@ -3393,6 +3455,14 @@ class MusicService :
                 player.currentMetadata,
                 duration = currentPlaybackDurationIfReady(),
             )
+            if (player.isPlaying) {
+                youtubeMusicHistorySyncManager.onSongStart(
+                    metadata = player.currentMetadata,
+                    durationMs = currentPlaybackDurationIfReady(),
+                )
+            } else {
+                youtubeMusicHistorySyncManager.onSongPause()
+            }
         }
         if (
             events.containsAny(
@@ -7583,6 +7653,7 @@ class MusicService :
         player.removeListener(sleepTimer)
         playerSilenceProcessors.remove(player)
         scrobbleManager?.destroy()
+        youtubeMusicHistorySyncManager.destroy()
         discordUpdateJob?.cancel()
         DiscordRpcManager.clear()
         DiscordRpcManager.destroy()
@@ -8465,6 +8536,8 @@ class MusicService :
             val transitionDuration = currentPlaybackDurationIfReady()
             scrobbleManager?.onSongStop()
             scrobbleManager?.onSongStart(transitionedMetadata, duration = transitionDuration)
+            youtubeMusicHistorySyncManager.onSongStop()
+            youtubeMusicHistorySyncManager.onSongStart(transitionedMetadata, durationMs = transitionDuration)
             startSpotifyListeningHistoryIfAllowed(
                 metadata = transitionedMetadata,
                 duration = transitionDuration,

@@ -54,6 +54,8 @@ import com.metrolist.music.constants.ExperimentalDeezerResolverFallbackKey
 import com.metrolist.music.constants.ExperimentalFastProviderMatchSearchKey
 import com.metrolist.music.constants.ExperimentalPlaybackDiagnosticsKey
 import com.metrolist.music.constants.ExperimentalProviderPlaybackTimeoutKey
+import com.metrolist.music.constants.ExperimentalPreserveSongCacheOnQualityChangeKey
+import com.metrolist.music.constants.ExperimentalYouTubeMusicHistorySyncKey
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
@@ -121,6 +123,14 @@ fun ExperimentsSettings(
     )
     val (accurateProviderHealth, onAccurateProviderHealthChange) = rememberPreference(
         key = ExperimentalAccurateProviderHealthKey,
+        defaultValue = false,
+    )
+    val (preserveSongCacheOnQualityChange, onPreserveSongCacheOnQualityChange) = rememberPreference(
+        key = ExperimentalPreserveSongCacheOnQualityChangeKey,
+        defaultValue = false,
+    )
+    val (youTubeMusicHistorySync, onYouTubeMusicHistorySyncChange) = rememberPreference(
+        key = ExperimentalYouTubeMusicHistorySyncKey,
         defaultValue = false,
     )
     var showAppleMusicLyricsSizeDialog by rememberSaveable { mutableStateOf(false) }
@@ -351,6 +361,20 @@ fun ExperimentsSettings(
                     description = stringResource(R.string.experimental_accurate_provider_health_desc),
                     checked = accurateProviderHealth,
                     onCheckedChange = onAccurateProviderHealthChange,
+                ),
+                experimentalSwitchItem(
+                    icon = R.drawable.cached,
+                    title = stringResource(R.string.experimental_preserve_song_cache_on_quality_change),
+                    description = stringResource(R.string.experimental_preserve_song_cache_on_quality_change_desc),
+                    checked = preserveSongCacheOnQualityChange,
+                    onCheckedChange = onPreserveSongCacheOnQualityChange,
+                ),
+                experimentalSwitchItem(
+                    icon = R.drawable.history,
+                    title = stringResource(R.string.experimental_youtube_music_history_sync),
+                    description = stringResource(R.string.experimental_youtube_music_history_sync_desc),
+                    checked = youTubeMusicHistorySync,
+                    onCheckedChange = onYouTubeMusicHistorySyncChange,
                 ),
             ),
         )
