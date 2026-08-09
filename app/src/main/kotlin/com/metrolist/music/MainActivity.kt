@@ -243,9 +243,9 @@ private fun homeFeedSourceIcon(source: HomeFeedSource): Int =
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     companion object {
-        private const val ACTION_SEARCH = "com.metrofuse.music.action.SEARCH"
-        private const val ACTION_LIBRARY = "com.metrofuse.music.action.LIBRARY"
-        const val ACTION_RECOGNITION = "com.metrofuse.music.action.RECOGNITION"
+        private const val ACTION_SEARCH = "com.metrofuse.plus.action.SEARCH"
+        private const val ACTION_LIBRARY = "com.metrofuse.plus.action.LIBRARY"
+        const val ACTION_RECOGNITION = "com.metrofuse.plus.action.RECOGNITION"
         const val EXTRA_AUTO_START_RECOGNITION = "auto_start_recognition"
     }
 

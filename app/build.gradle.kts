@@ -18,10 +18,10 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 
-val baseApplicationId = "com.metrofuse.music"
-val metroFuseVersionCode = 700
-val metroFuseVersionName = "7.0"
-val metroFuseUpdateRepository = "956tris/MetroFuse"
+val baseApplicationId = "com.metrofuse.plus"
+val metroFuseVersionCode = 701
+val metroFuseVersionName = "7.0.1"
+val metroFuseUpdateRepository = "caduHD4/MetroFuse"
 val discordRpcApplicationId = "1508739806186963045"
 val applicationIdOverride = System.getenv("METROLIST_APPLICATION_ID")?.takeIf { it.isNotBlank() }
 val appNameOverride = System.getenv("METROLIST_APP_NAME")?.takeIf { it.isNotBlank() }
@@ -176,7 +176,7 @@ android {
         targetSdk = 36
         versionCode = metroFuseVersionCode
         versionName = metroFuseVersionName
-        resValue("string", "app_name", appNameOverride ?: "MetroFuse")
+        resValue("string", "app_name", appNameOverride ?: "MetroFuse+")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -210,7 +210,7 @@ android {
             isEnable = releaseBuildRequested
             reset()
             include("arm64-v8a", "armeabi-v7a")
-            isUniversalApk = false
+        isUniversalApk = true
         }
     }
 
@@ -288,7 +288,7 @@ android {
             }
             isDebuggable = true
             if (appNameOverride == null) {
-                resValue("string", "app_name", "MetroFuse")
+                resValue("string", "app_name", "MetroFuse+")
             }
             signingConfig =
                 if (workflowDebugKeystoreFile?.exists() == true && workflowDebugKeystoreFile.length() > 1024) {

@@ -1,1 +1,1 @@
-Material 3 YouTube Music client for Android
+Multi-provider Android music client with optional playback experiments

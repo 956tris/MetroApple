@@ -74,7 +74,7 @@
     <string name="apple_music_artist_motion_backgrounds">Apple Music artist motion backgrounds</string>
     <string name="apple_music_artist_motion_backgrounds_desc">Use Apple Music animated hero videos on supported artist pages.</string>
     <string name="experiments">Experiments</string>
-    <string name="experiments_settings_desc">Try unfinished MetroFuse UI ideas behind opt-in toggles</string>
+    <string name="experiments_settings_desc">Try unfinished MetroFuse+ UI ideas behind opt-in toggles</string>
     <string name="experiments_player">Player experiments</string>
     <string name="experiments_playback_reliability">Playback reliability experiments</string>
     <string name="experimental_fast_provider_match_search">Fast audio-source search</string>
@@ -274,7 +274,7 @@
     <string name="discord_show_provider">Show audio provider</string>
     <string name="discord_show_provider_description">Append the active audio provider to the Rich Presence name</string>
     <string name="discord_hide_when_spotify_history">Prefer Spotify presence</string>
-    <string name="discord_hide_when_spotify_history_description">Hide MetroFuse Rich Presence while Spotify history sync controls the current song</string>
+    <string name="discord_hide_when_spotify_history_description">Hide MetroFuse+ Rich Presence while Spotify history sync controls the current song</string>
     <string name="discord_animated_canvas">Animated canvas artwork</string>
     <string name="discord_animated_canvas_description">Use Apple Music motion art in Discord when a canvas is available</string>
     <string name="discord_animated_canvas_high_quality">High quality animated canvas</string>
@@ -325,7 +325,7 @@
     <string name="release_notes">Release notes</string>
     <string name="changelog">Changelog</string>
     <string name="changelog_empty">No changelogs available</string>
-    <string name="github_releases_url">https://github.com/956tris/MetroFuse/releases</string>
+    <string name="github_releases_url">https://github.com/caduHD4/MetroFuse/releases</string>
     <string name="list_bullet">•</string>
     <string name="view_on_github">View on GitHub</string>
     <string name="current_version">Current version</string>
@@ -591,7 +591,7 @@
     <string name="provider_health_latency">%1$d ms</string>
     <string name="provider_health_selected">Selected</string>
     <string name="provider_order">Provider order</string>
-    <string name="provider_order_settings_desc">Drag audio providers into the order MetroFuse should try them</string>
+    <string name="provider_order_settings_desc">Drag audio providers into the order MetroFuse+ should try them</string>
     <string name="provider_order_summary">Drag providers higher to try them earlier. Providers that need their own integration toggle still only run when enabled.</string>
     <string name="provider_order_reset">Reset provider order</string>
     <string name="audio_provider_soundcloud">SoundCloud</string>
@@ -625,7 +625,7 @@
     <string name="password">Password</string>
     <string name="soundcloud_integration">SoundCloud</string>
     <string name="soundcloud_web_login">SoundCloud Web login</string>
-    <string name="soundcloud_web_login_desc">Log in with SoundCloud in the WebView. MetroFuse saves the OAuth token used for personalized SoundCloud home and your own account streams.</string>
+    <string name="soundcloud_web_login_desc">Log in with SoundCloud in the WebView. MetroFuse+ saves the OAuth token used for personalized SoundCloud home and your own account streams.</string>
     <string name="soundcloud_auth_token_title">SoundCloud OAuth token</string>
     <string name="soundcloud_auth_token_placeholder">Paste oauth_token, access token, or a SoundCloud cookie header</string>
     <string name="soundcloud_auth_token_helper">Use Web login, or paste the oauth_token value from your SoundCloud browser session.</string>
@@ -663,19 +663,19 @@
     <string name="deezer_fast_mode">Fast Deezer loading</string>
     <string name="deezer_fast_mode_desc">Batch quality fallbacks and skip slower backup lookups for quicker Deezer starts.</string>
     <string name="deezer_reset_resolver">Reset Deezer resolver</string>
-    <string name="deezer_integration_info">The resolver only finds the encrypted Deezer media URL. MetroFuse decrypts the stream locally during playback or downloads, and keeps public search and artwork requests off your Deezer session.</string>
+    <string name="deezer_integration_info">The resolver only finds the encrypted Deezer media URL. MetroFuse+ decrypts the stream locally during playback or downloads, and keeps public search and artwork requests off your Deezer session.</string>
     <string name="deezer_web_login">Deezer Web login</string>
-    <string name="deezer_web_login_desc">Log in with Deezer in the WebView. MetroFuse saves your Deezer session cookie for the Deezer home feed, albums, and playlists.</string>
+    <string name="deezer_web_login_desc">Log in with Deezer in the WebView. MetroFuse+ saves your Deezer session cookie for the Deezer home feed, albums, and playlists.</string>
     <string name="deezer_cookie_title">Deezer cookie</string>
     <string name="deezer_cookie_placeholder">Paste arl, sid, or a Deezer cookie header</string>
-    <string name="deezer_cookie_helper">Use Web login, or paste a Deezer cookie header containing arl. MetroFuse keeps the cookie for Deezer home and collection actions, while search and artwork stay on public endpoints.</string>
+    <string name="deezer_cookie_helper">Use Web login, or paste a Deezer cookie header containing arl. MetroFuse+ keeps the cookie for Deezer home and collection actions, while search and artwork stay on public endpoints.</string>
     <string name="deezer_cookie_configured">Deezer login configured</string>
     <string name="deezer_cookie_not_configured">No Deezer login configured</string>
     <string name="deezer_clear_cookie">Clear Deezer login</string>
     <string name="deezer_cookie_saved">Deezer login saved.</string>
     <string name="instagram_integration">Instagram</string>
     <string name="instagram_web_login">Instagram Web login</string>
-    <string name="instagram_web_login_desc">Log in with Instagram in the WebView. MetroFuse saves the session cookies used for Instagram Music audio lookup.</string>
+    <string name="instagram_web_login_desc">Log in with Instagram in the WebView. MetroFuse+ saves the session cookies used for Instagram Music audio lookup.</string>
     <string name="instagram_cookie_title">Instagram cookies</string>
     <string name="instagram_cookie_placeholder">Paste an Instagram cookie header with sessionid and ds_user_id</string>
     <string name="instagram_cookie_helper">Use Web login, or paste a full Instagram cookie header containing sessionid and ds_user_id.</string>
@@ -703,7 +703,7 @@
     <string name="enable_scrobbling">Enable scrobbling</string>
     <string name="lastfm_now_playing">Send Now Playing status</string>
     <string name="last_fm_send_likes">Sync Loved and Unloved</string>
-    <string name="last_fm_send_likes_description">Love or unlove songs in Last.fm when you like or unlike them in MetroFuse</string>
+    <string name="last_fm_send_likes_description">Love or unlove songs in Last.fm when you like or unlike them in MetroFuse+</string>
     <string name="logging_in">Logging in…</string>
 
     <!-- Spotify Canvas -->
@@ -716,7 +716,7 @@
     <string name="canvas_artwork_priority_spotify">Prefer Spotify</string>
     <string name="canvas_artwork_priority_spotify_desc">Use Spotify Canvas in the player first, then Apple Music motion art if Spotify has no match.</string>
     <string name="embed_animated_canvas">Embed Canvas in downloads</string>
-    <string name="embed_animated_canvas_desc">Choose which animated artwork MetroFuse embeds into downloaded tracks. Warning: most offline players cannot read it; MetroFuse can.</string>
+    <string name="embed_animated_canvas_desc">Choose which animated artwork MetroFuse+ embeds into downloaded tracks. Warning: most offline players cannot read it; MetroFuse+ can.</string>
     <string name="download_canvas_mode_off">Off</string>
     <string name="download_canvas_mode_off_desc">Do not embed animated artwork in downloaded tracks.</string>
     <string name="download_canvas_mode_spotify">Spotify Canvas</string>
@@ -726,11 +726,11 @@
     <string name="download_canvas_mode_both">Both</string>
     <string name="download_canvas_mode_both_desc">Try both providers using the current Canvas priority order.</string>
     <string name="spotify_listening_history">Sync Spotify listening history</string>
-    <string name="spotify_listening_history_desc">Experimental. Matches MetroFuse plays to Spotify tracks and reports them only when Spotify accepts the history write path.</string>
+    <string name="spotify_listening_history_desc">Experimental. Matches MetroFuse+ plays to Spotify tracks and reports them only when Spotify accepts the history write path.</string>
     <string name="spotify_listening_history_global">Use Spotify history globally</string>
-    <string name="spotify_listening_history_global_desc">Also match non-Spotify playback across MetroFuse, which can show the Spotify Connect device and Spotify Discord status.</string>
+    <string name="spotify_listening_history_global_desc">Also match non-Spotify playback across MetroFuse+, which can show the Spotify Connect device and Spotify Discord status.</string>
     <string name="spotify_sync_likes">Sync likes with Spotify</string>
-    <string name="spotify_sync_likes_description">Automatically add or remove songs you like in MetroFuse to your Spotify Liked Songs.</string>
+    <string name="spotify_sync_likes_description">Automatically add or remove songs you like in MetroFuse+ to your Spotify Liked Songs.</string>
     <string name="enable_spotify_lyrics">Spotify</string>
     <string name="enable_spotify_lyrics_desc">Fetch synced lyrics from Spotify. Requires a configured Spotify cookie.</string>
     <string name="spotify_listening_history_device_name">stupid ass client</string>
@@ -743,7 +743,7 @@
     <string name="spotify_listening_history_unknown_error">Unknown error</string>
     <string name="spotify_canvas_requires_cookie">Log in with Spotify before enabling Canvas videos</string>
     <string name="spotify_canvas_web_login">Spotify Web login</string>
-    <string name="spotify_canvas_web_login_desc">Log in with Spotify in the WebView. MetroFuse saves the Spotify cookies needed for Canvas and personalized Spotify home.</string>
+    <string name="spotify_canvas_web_login_desc">Log in with Spotify in the WebView. MetroFuse+ saves the Spotify cookies needed for Canvas and personalized Spotify home.</string>
     <string name="spotify_canvas_cookie_title">Spotify cookies / sp_dc + sp_t</string>
     <string name="spotify_canvas_cookie_placeholder">Paste a Spotify cookie header or the raw sp_dc value</string>
     <string name="spotify_canvas_cookie_helper">Paste a full Spotify cookie header for the personalized frontpage. Canvas can still work with only sp_dc, but Spotify home also needs sp_t.</string>
@@ -755,7 +755,7 @@
     <!-- TIDAL -->
     <string name="tidal_integration">TIDAL</string>
     <string name="tidal_web_login">TIDAL Web login</string>
-    <string name="tidal_web_login_desc">Log in with TIDAL in the WebView. MetroFuse saves the TIDAL cookies and browser auth tokens used for personalized sections and curated playlists.</string>
+    <string name="tidal_web_login_desc">Log in with TIDAL in the WebView. MetroFuse+ saves the TIDAL cookies and browser auth tokens used for personalized sections and curated playlists.</string>
     <string name="tidal_cookie_title">TIDAL cookies / auth token</string>
     <string name="tidal_cookie_placeholder">Paste a TIDAL cookie header, refresh token, or access token</string>
     <string name="tidal_cookie_helper">Use Web login to capture TIDAL browser auth, or paste a full TIDAL cookie header / token manually.</string>
@@ -836,15 +836,15 @@
     <string name="wrapped_total_artists_subtitle">unique artists!</string>
     <string name="wrapped_total_songs_title">You\'ve listened to</string>
     <string name="wrapped_total_songs_subtitle">unique songs!</string>
-    <string name="wrapped_intro_title">METROFUSE</string>
+    <string name="wrapped_intro_title">METROFUSE+</string>
     <string name="wrapped_intro_subtitle">it\'s time to see what you\'ve been listening to all this year…</string>
     <string name="wrapped_intro_button">let\'s go!</string>
-    <string name="wrapped_logo_content_description">MetroFuse Logo</string>
+    <string name="wrapped_logo_content_description">MetroFuse+ Logo</string>
     <string name="wrapped_year">2025</string>
     <string name="wrapped_ready_title">YOUR WRAPPED IS READY!</string>
     <string name="wrapped_ready_subtitle">Time to see what you loved all this year…</string>
     <string name="wrapped_thank_you">Thank you for listening!</string>
-    <string name="wrapped_special_thanks">Special thanks to MO Agamy for creating MetroFuse</string>
+    <string name="wrapped_special_thanks">Special thanks to MO Agamy for creating the original MetroFuse</string>
     <string name="wrapped_close">Close Wrapped</string>
     <string name="wrapped_playlist_title">Your %s Wrapped</string>
     <string name="wrapped_create_playlist">Create playlist</string>
@@ -895,7 +895,7 @@
     <string name="plays">plays</string>
     <string name="casting_to">Casting to %s</string>
     <string name="progress_percent">Progress %s%%</string>
-    <string name="listening_to_metrolist">Listening to MetroFuse</string>
+    <string name="listening_to_metrolist">Listening to MetroFuse+</string>
     <string name="open">Open</string>
     <string name="failed_to_create_image">Failed to create image: %s</string>
     <string name="copied_title">Title copied</string>
@@ -904,10 +904,10 @@
     <string name="failed_to_parse_proxy">Failed to parse proxy URL</string>
 
     <!-- Playback errors -->
-    <string name="error_playback_failed">MetroFuse playback error</string>
+    <string name="error_playback_failed">MetroFuse+ playback error</string>
     <string name="copy_error">Copy error</string>
     <string name="playback_error_copied">Playback error copied</string>
-    <string name="playback_error_paste_title">MetroFuse playback error</string>
+    <string name="playback_error_paste_title">MetroFuse+ playback error</string>
     <string name="playback_error_paste_creating">Creating Pastefox link...</string>
     <string name="playback_error_paste_creating_short">Creating link...</string>
     <string name="playback_error_link_copied">Pastefox error link copied</string>
@@ -921,13 +921,13 @@
     <!-- Widget strings -->
     <string name="album_art">Album art</string>
     <string name="no_song_playing">No song playing</string>
-    <string name="tap_to_open">Tap to open MetroFuse</string>
+    <string name="tap_to_open">Tap to open MetroFuse+</string>
     <string name="previous">Previous</string>
     <string name="play_pause">Play/Pause</string>
     <string name="next">Next</string>
     <string name="like">Like</string>
     <string name="not_playing">No song playing</string>
-    <string name="tap_to_play">Tap to open MetroFuse</string>
+    <string name="tap_to_play">Tap to open MetroFuse+</string>
     <string name="widget_description">Music player widget with playback controls</string>
     <string name="turntable_widget_description">Circular music widget with play and like controls</string>
     <string name="widget_music_player">Music Player</string>
@@ -1089,11 +1089,11 @@
     <string name="ai_system_prompt_reset">Reset to default</string>
 
     <!-- Crash Handler -->
-    <string name="crash_title">MetroFuse Crash report</string>
+    <string name="crash_title">MetroFuse+ Crash report</string>
     <string name="crash_description">An unexpected error occurred. Please share the crash report to help us fix the issue</string>
     <string name="crash_share_logs">Share logs</string>
-    <string name="crash_share_title">MetroFuse Crash report</string>
-    <string name="crash_report_subject">MetroFuse Crash report</string>
+    <string name="crash_share_title">MetroFuse+ Crash report</string>
+    <string name="crash_report_subject">MetroFuse+ Crash report</string>
     <string name="crash_close">Close</string>
     <string name="crash_no_log">No crash log available</string>
 
@@ -1143,7 +1143,7 @@
     <string name="clear_recognition_history_confirm">Are you sure you want to clear all recognition history?</string>
     <string name="delete_from_history">Delete from history</string>
     <string name="re_listen">Re-listen</string>
-    <string name="play_on_app">Play on MetroFuse</string>
+    <string name="play_on_app">Play on MetroFuse+</string>
     <string name="qs_tile_music_recognizer">Recognize music</string>
     <string name="recognition_notification_channel_name">Music recognition</string>
     <string name="recognition_notification_channel_desc">Shows a notification while identifying a song from quick settings</string>
@@ -1151,7 +1151,7 @@
     <string name="recognition_notification_processing">Identifying…</string>
     <string name="recognition_notification_no_match">No match found</string>
     <string name="recognition_notification_failed">Recognition failed</string>
-    <string name="listen_on_metrolist">Listen on MetroFuse</string>
+    <string name="listen_on_metrolist">Listen on MetroFuse+</string>
 
     <!-- CSV Import Strings -->
     <string name="map_csv_columns">Map CSV columns</string>
@@ -1175,11 +1175,11 @@
     <string name="discord_button_1">Button 1</string>
     <string name="discord_button_2">Button 2</string>
     <string name="discord_default_button_1">Listen on YouTube Music</string>
-    <string name="discord_default_button_2">Visit MetroFuse</string>
-    <string name="discord_default_button_2_url">https://github.com/956tris/MetroFuse</string>
+    <string name="discord_default_button_2">Visit MetroFuse+</string>
+    <string name="discord_default_button_2_url">https://github.com/caduHD4/MetroFuse</string>
     <string name="login_successful">Login successful!</string>
     <string name="discord_logged_in">Logged in</string>
-    <string name="discord_information_warning">MetroFuse uses Discord\'s official Social SDK to share what you\'re listening to. Authorization is handled through Discord OAuth, and MetroFuse only stores the Discord session on this device for reconnecting.</string>
+    <string name="discord_information_warning">MetroFuse+ uses Discord\'s official Social SDK to share what you\'re listening to. Authorization is handled through Discord OAuth, and MetroFuse+ only stores the Discord session on this device for reconnecting.</string>
     <string name="discord_rpc_temporarily_removed_warning">Discord RPC is temporarily removed from this hotfix build until the upstream SDK fix is released. Spotify presence and history features are unchanged.</string>
     <string name="discord_rpc_temporarily_removed_status">Temporarily removed</string>
     <string name="discord_activity_type">Activity type</string>
@@ -1191,9 +1191,9 @@
     <string name="discord_rpc_preview">Rich Presence preview</string>
     <string name="discord_presence">Presence</string>
     <string name="discord_connect_description">Sign in with Discord to share what you\'re listening to</string>
-    <string name="discord_playing_metrolist">Playing MetroFuse</string>
-    <string name="discord_watching_metrolist">Watching MetroFuse</string>
-    <string name="discord_competing_metrolist">Competing in MetroFuse</string>
+    <string name="discord_playing_metrolist">Playing MetroFuse+</string>
+    <string name="discord_watching_metrolist">Watching MetroFuse+</string>
+    <string name="discord_competing_metrolist">Competing in MetroFuse+</string>
     <string name="discord_activity_name">Activity name</string>
     <string name="discord_activity_name_description">Custom name for the activity. Leave empty to use the default</string>
     <string name="discord_advanced_mode">Advanced mode</string>

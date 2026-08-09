@@ -118,8 +118,8 @@ private val metrolistDevelopers = listOf(
 
 private val communityLinks = listOf(
     CommunityLink(R.string.credits_discord, R.drawable.discord, "https://discord.gg/ddHxkVDgt3"),
-    CommunityLink(R.string.credits_view_repo, R.drawable.github, "https://github.com/956tris/MetroFuse"),
-    CommunityLink(R.string.credits_license_name, R.drawable.info, "https://github.com/956tris/MetroFuse/blob/main/LICENSE")
+    CommunityLink(R.string.credits_view_repo, R.drawable.github, "https://github.com/caduHD4/MetroFuse"),
+    CommunityLink(R.string.credits_license_name, R.drawable.info, "https://github.com/caduHD4/MetroFuse/blob/main/LICENSE"),
 )
 
 private fun handleEasterEggClick(
@@ -190,7 +190,7 @@ private fun DeveloperSocials(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         FilledTonalButton(
-            onClick = { uriHandler.openUri("https://github.com/956tris/MetroFuse") },
+            onClick = { uriHandler.openUri("https://github.com/caduHD4/MetroFuse") },
             modifier = Modifier.weight(1f).height(48.dp)
         ) {
             Icon(painterResource(R.drawable.small_icon), contentDescription = null)

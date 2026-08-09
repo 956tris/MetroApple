@@ -1146,7 +1146,7 @@ internal object AudioTagWriter {
     private const val METROFUSE_CANVAS_PROVIDER = "METROFUSE_CANVAS_PROVIDER"
     internal const val METROFUSE_HLS_CANVAS_MIME = "application/vnd.metrofuse.canvas-hls"
     private const val METROFUSE_HLS_MANIFEST_NAME = "manifest.m3u8"
-    private const val METROFUSE_MP4_MEAN = "com.metrofuse.music"
+    private const val METROFUSE_MP4_MEAN = "com.metrofuse.plus"
     private const val METROFUSE_MP4_CANVAS_NAME = "CANVAS"
     private const val METROFUSE_MP4_CANVAS_MIME_NAME = "CANVAS_MIME"
     private const val METROFUSE_MP4_CANVAS_PROVIDER_NAME = "CANVAS_PROVIDER"

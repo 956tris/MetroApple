@@ -8755,7 +8755,7 @@ class MusicService :
     }
 
     companion object {
-        const val ACTION_ALARM_TRIGGER = "com.metrofuse.music.action.ALARM_TRIGGER"
+        const val ACTION_ALARM_TRIGGER = "com.metrofuse.plus.action.ALARM_TRIGGER"
         const val EXTRA_ALARM_ID = "extra_alarm_id"
         const val EXTRA_ALARM_PLAYLIST_ID = "extra_alarm_playlist_id"
         const val EXTRA_ALARM_RANDOM_SONG = "extra_alarm_random_song"

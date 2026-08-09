@@ -7,6 +7,9 @@ on:
       - "app/build.gradle.kts"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   check-version:
     if: "!contains(github.ref, 'refs/tags')"
@@ -30,8 +33,8 @@ jobs:
             exit 0
           fi
 
-          NEW_VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts || echo "")
-          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts || echo "")
+          NEW_VERSION=$(grep -oP 'metroFuseVersionName\s*=\s*"\K[^"]+' app/build.gradle.kts || echo "")
+          VERSION_CODE=$(grep -oP 'metroFuseVersionCode\s*=\s*\K\d+' app/build.gradle.kts || echo "")
 
           if [ -z "$NEW_VERSION" ]; then
             echo "Could not find versionName in app/build.gradle.kts"
@@ -40,16 +43,16 @@ jobs:
           fi
 
           echo "Current version: $NEW_VERSION (code: $VERSION_CODE)"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
 
           if git show HEAD^:app/build.gradle.kts > /dev/null 2>&1; then
-            OLD_VERSION=$(git show HEAD^:app/build.gradle.kts | grep -oP 'versionName\s*=\s*"\K[^"]+' || echo "")
+            OLD_VERSION=$(git show HEAD^:app/build.gradle.kts | grep -oP 'metroFuseVersionName\s*=\s*"\K[^"]+' || echo "")
             echo "Previous version: $OLD_VERSION"
             
             if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
               echo "Version changed from $OLD_VERSION to $NEW_VERSION"
               echo "version_changed=true" >> $GITHUB_OUTPUT
-              echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-              echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
             else
               echo "Version unchanged: $NEW_VERSION"
               echo "version_changed=false" >> $GITHUB_OUTPUT
@@ -57,8 +60,6 @@ jobs:
           else
             echo "First version detected: $NEW_VERSION"
             echo "version_changed=true" >> $GITHUB_OUTPUT
-            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
           fi
 
       - name: Debug output
@@ -103,32 +104,31 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Restore release keystore
+        run: |
+          mkdir -p app/keystore
+          echo "${{ secrets.KEYSTORE }}" | base64 --decode > app/keystore/release.keystore
+
       - name: Build and Lint Release APK
         run: ./gradlew --console=plain clean assemble${{ matrix.variantName }}Release :app:lint${{ matrix.variantName }}Release --warning-mode summary
         env:
-          METROLIST_APPLICATION_ID: com.metroapple.music
-          METROLIST_APP_NAME: Metrolist
+          METROLIST_APPLICATION_ID: com.metrofuse.plus
+          METROLIST_APP_NAME: MetroFuse+
+          RELEASE_KEYSTORE_PATH: keystore/release.keystore
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           PULL_REQUEST: "false"
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
 
-      - name: Sign APK
-        uses: ilharp/sign-android-release@v2.0.0
-        with:
-          releaseDir: app/build/outputs/apk/${{ matrix.variant }}/release/
-          signingKey: ${{ secrets.KEYSTORE }}
-          keyAlias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-          buildToolsVersion: 35.0.0
-
-      - name: Move and rename signed APKs
+      - name: Move and rename universal APK
         run: |
           OUTPUT_DIR="app/build/outputs/apk/${{ matrix.variant }}/release"
           mkdir -p "$OUTPUT_DIR/out"
 
-          SIGNED_APK=$(find "$OUTPUT_DIR" -name "*-signed.apk" -o -name "*-unsigned-signed.apk" | head -1)
+          SIGNED_APK=$(find "$OUTPUT_DIR" -name "*universal*release.apk" | head -1)
 
           if [ -z "$SIGNED_APK" ]; then
             echo "No signed APK found for ${{ matrix.variant }}"
@@ -137,11 +137,11 @@ jobs:
           fi
 
           if [ "${{ matrix.variant }}" = "gms" ]; then
-            TARGET_NAME="Metrolist-with-Google-Cast.apk"
+            TARGET_NAME="MetroFusePlus-with-Google-Cast.apk"
           elif [ "${{ matrix.variant }}" = "izzy" ]; then
-            TARGET_NAME="Metrolist-izzy.apk"
+            TARGET_NAME="MetroFusePlus-izzy.apk"
           else
-            TARGET_NAME="Metrolist.apk"
+            TARGET_NAME="MetroFusePlus.apk"
           fi
 
           mv "$SIGNED_APK" "$OUTPUT_DIR/out/$TARGET_NAME"
@@ -152,7 +152,7 @@ jobs:
       - name: Upload Signed APKs
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.variant == 'gms' && 'Metrolist-with-Google-Cast' || matrix.variant == 'izzy' && 'Metrolist-izzy' || 'Metrolist' }}
+          name: ${{ matrix.variant == 'gms' && 'MetroFusePlus-with-Google-Cast' || matrix.variant == 'izzy' && 'MetroFusePlus-izzy' || 'MetroFusePlus' }}
           path: app/build/outputs/apk/${{ matrix.variant }}/release/out/*.apk
 
   create-release:
@@ -202,7 +202,7 @@ jobs:
 
       - name: Create Release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
         run: |
           echo "Creating release v${{ needs.check-version.outputs.new_version }}"
 

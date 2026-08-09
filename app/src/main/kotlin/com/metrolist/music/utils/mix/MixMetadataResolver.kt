@@ -277,7 +277,7 @@ private object  ProviderIsrcClient {
 
 private object MusicBrainzClient {
     private const val BASE_URL = "https://musicbrainz.org/ws/2/recording/"
-    private const val USER_AGENT = "MetroFuse/1.0 (https://github.com/956tris/MetroFuse)"
+    private const val USER_AGENT = "MetroFusePlus/7.0.1 (https://github.com/caduHD4/MetroFuse)"
     private const val CACHE_TTL_MS = 1000L * 60L * 60L * 24L * 7L
 
     private val client = OkHttpClient()

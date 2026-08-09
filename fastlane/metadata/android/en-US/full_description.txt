@@ -1,4 +1,6 @@
-Material 3 YouTube Music client for Android
+MetroFuse+ is a Material 3 multi-provider music client for Android, based on MetroFuse 7.0.
+
+MetroFuse+ adds optional playback reliability, cache-priority, and authenticated YouTube Music history experiments. Every MetroFuse+ experiment is disabled by default and can be enabled independently in Settings.
 
 Features:
 

@@ -80,10 +80,10 @@ class MusicWidgetReceiver : AppWidgetProvider() {
     }
 
     companion object {
-        const val ACTION_PLAY_PAUSE = "com.metrofuse.music.widget.PLAY_PAUSE"
-        const val ACTION_LIKE = "com.metrofuse.music.widget.LIKE"
-        const val ACTION_NEXT = "com.metrofuse.music.widget.NEXT"
-        const val ACTION_PREVIOUS = "com.metrofuse.music.widget.PREVIOUS"
-        const val ACTION_UPDATE_WIDGET = "com.metrofuse.music.widget.UPDATE_WIDGET"
+        const val ACTION_PLAY_PAUSE = "com.metrofuse.plus.widget.PLAY_PAUSE"
+        const val ACTION_LIKE = "com.metrofuse.plus.widget.LIKE"
+        const val ACTION_NEXT = "com.metrofuse.plus.widget.NEXT"
+        const val ACTION_PREVIOUS = "com.metrofuse.plus.widget.PREVIOUS"
+        const val ACTION_UPDATE_WIDGET = "com.metrofuse.plus.widget.UPDATE_WIDGET"
     }
 }

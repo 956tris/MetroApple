@@ -908,6 +908,7 @@ fun LocalPlaylistHeader(
         playlist.thumbnails.firstOrNull()?.let {
             it.contains("studio_square_thumbnail") ||
                 it.contains("content://com.metrolist.music") ||
+                it.contains("content://com.metrofuse.plus") ||
                 it.contains("content://com.metrofuse.music") ||
                 it.contains("content://com.metroapple.music")
         } ?: false

@@ -83,7 +83,7 @@
 
             <!-- Music Recognizer Widget: open recognition / recognition_history screen -->
             <intent-filter>
-                <action android:name="com.metrofuse.music.action.RECOGNITION" />
+                <action android:name="com.metrofuse.plus.action.RECOGNITION" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
@@ -304,9 +304,9 @@
             android:label="@string/widget_music_player">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.metrofuse.music.widget.PLAY_PAUSE" />
-                <action android:name="com.metrofuse.music.widget.LIKE" />
-                <action android:name="com.metrofuse.music.widget.UPDATE_WIDGET" />
+                <action android:name="com.metrofuse.plus.widget.PLAY_PAUSE" />
+                <action android:name="com.metrofuse.plus.widget.LIKE" />
+                <action android:name="com.metrofuse.plus.widget.UPDATE_WIDGET" />
             </intent-filter>
 
             <meta-data
@@ -321,9 +321,9 @@
             android:label="@string/widget_turntable">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.metrofuse.music.widget.TURNTABLE_PLAY_PAUSE" />
-                <action android:name="com.metrofuse.music.widget.TURNTABLE_LIKE" />
-                <action android:name="com.metrofuse.music.widget.UPDATE_TURNTABLE_WIDGET" />
+                <action android:name="com.metrofuse.plus.widget.TURNTABLE_PLAY_PAUSE" />
+                <action android:name="com.metrofuse.plus.widget.TURNTABLE_LIKE" />
+                <action android:name="com.metrofuse.plus.widget.UPDATE_TURNTABLE_WIDGET" />
             </intent-filter>
 
             <meta-data
@@ -343,9 +343,9 @@
             android:label="@string/widget_recognizer_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.metrofuse.music.widget.recognizer.TAP_MIC" />
-                <action android:name="com.metrofuse.music.widget.recognizer.UPDATE" />
-                <action android:name="com.metrofuse.music.widget.recognizer.RESET" />
+                <action android:name="com.metrofuse.plus.widget.recognizer.TAP_MIC" />
+                <action android:name="com.metrofuse.plus.widget.recognizer.UPDATE" />
+                <action android:name="com.metrofuse.plus.widget.recognizer.RESET" />
             </intent-filter>
 
             <meta-data
