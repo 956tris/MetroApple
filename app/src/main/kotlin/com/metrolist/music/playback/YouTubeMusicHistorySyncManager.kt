@@ -27,7 +27,7 @@ internal class YouTubeMusicHistorySyncManager(
     fun onSongStart(metadata: MediaMetadata?, durationMs: Long?) {
         val videoId = metadata?.id?.let(YouTubeMusicHistorySyncPolicy::videoIdOrNull) ?: return stop()
         if (!isEnabled() || !isAuthenticated()) return stop()
-        if (activeVideoId == videoId) return resume()
+        if (activeVideoId == videoId) return onSongResume()
 
         stop()
         activeVideoId = videoId
