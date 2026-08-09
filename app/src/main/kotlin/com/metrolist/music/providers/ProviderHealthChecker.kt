@@ -69,6 +69,7 @@ object ProviderHealthChecker {
         deezerResolverUrl: String,
         tidalResolverEndpoints: String = "",
         qobuzCustomInstances: String = "",
+        useUniqueTargetIds: Boolean = false,
     ): List<Target> {
         val deezerResolver = normalizeDeezerResolverUrl(deezerResolverUrl)
         var customTidalIndex = 0
@@ -121,7 +122,7 @@ object ProviderHealthChecker {
                 detail = "Official SoundCloud API used for homepage and client ID",
             ),
             getTarget(
-                id = "soundcloud_api",
+                id = if (useUniqueTargetIds) "soundcloud_track_search" else "soundcloud_api",
                 group = "SoundCloud",
                 name = "SoundCloud API",
                 endpoint = "https://api-v2.soundcloud.com/search/tracks?q=test&limit=1",

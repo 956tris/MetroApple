@@ -13,6 +13,7 @@ import com.metrolist.music.constants.AudioProviderOrderItem
 import com.metrolist.music.constants.AudioProviderOrderKey
 import com.metrolist.music.constants.DeezerAudioQuality
 import com.metrolist.music.constants.DeezerAudioQualityKey
+import com.metrolist.music.constants.ExperimentalFastProviderMatchSearchKey
 import com.metrolist.music.constants.DeezerFastModeKey
 import com.metrolist.music.constants.DeezerProxyModeKey
 import com.metrolist.music.constants.DeezerProxyUrlKey
@@ -37,11 +38,26 @@ import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import com.metrolist.music.utils.spotify.SpotifyCanvasClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 object ProviderMatchSearch {
+    private const val EXPERIMENTAL_SEARCH_TIMEOUT_MS = 8_000L
+    private const val EXPERIMENTAL_CACHE_TTL_MS = 90_000L
+
+    private data class CachedMatchSearch(
+        val createdAtMs: Long,
+        val candidates: List<ProviderMatchCandidate>,
+    )
+
+    private val experimentalCache = ConcurrentHashMap<String, CachedMatchSearch>()
+
     suspend fun search(
         context: Context,
         metadata: MediaMetadata,
@@ -49,9 +65,17 @@ object ProviderMatchSearch {
     ): List<ProviderMatchCandidate> =
         withContext(Dispatchers.IO) {
             val order = AudioProviderOrder.deserialize(context.dataStore.get(AudioProviderOrderKey, ""))
-            val candidates = mutableListOf<ProviderMatchCandidate>()
             val spotifyIsrc = resolveSpotifyIsrc(context, metadata)
-
+            if (context.dataStore.get(ExperimentalFastProviderMatchSearchKey, false)) {
+                return@withContext searchExperimental(
+                    context = context,
+                    metadata = metadata,
+                    order = order,
+                    perProviderLimit = perProviderLimit,
+                    spotifyIsrc = spotifyIsrc,
+                )
+            }
+            val candidates = mutableListOf<ProviderMatchCandidate>()
             order.forEach { provider ->
                 runCatching {
                     candidates += searchProviderInternal(context, metadata, provider, perProviderLimit, spotifyIsrc)
@@ -60,6 +84,43 @@ object ProviderMatchSearch {
             candidates
                 .distinctBy { "${it.provider.name}:${it.providerTrackId}" }
         }
+
+    private suspend fun searchExperimental(
+        context: Context,
+        metadata: MediaMetadata,
+        order: List<AudioProviderOrderItem>,
+        perProviderLimit: Int,
+        spotifyIsrc: String?,
+    ): List<ProviderMatchCandidate> {
+        val cacheKey = listOf(
+            metadata.id,
+            metadata.title,
+            metadata.artists.joinToString { it.name },
+            metadata.album?.title.orEmpty(),
+            metadata.duration,
+            order.joinToString(),
+            perProviderLimit,
+        ).joinToString("|")
+        val now = System.currentTimeMillis()
+        experimentalCache[cacheKey]
+            ?.takeIf { now - it.createdAtMs < EXPERIMENTAL_CACHE_TTL_MS }
+            ?.let { return it.candidates }
+
+        val candidates = coroutineScope {
+            order.map { provider ->
+                async(Dispatchers.IO) {
+                    withTimeoutOrNull(EXPERIMENTAL_SEARCH_TIMEOUT_MS) {
+                        runCatching {
+                            searchProviderInternal(context, metadata, provider, perProviderLimit, spotifyIsrc)
+                        }.getOrDefault(emptyList())
+                    }.orEmpty()
+                }
+            }.awaitAll().flatten()
+        }.distinctBy { "${it.provider.name}:${it.providerTrackId}" }
+
+        experimentalCache[cacheKey] = CachedMatchSearch(now, candidates)
+        return candidates
+    }
 
     suspend fun searchProvider(
         context: Context,

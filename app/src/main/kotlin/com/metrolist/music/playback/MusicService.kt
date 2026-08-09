@@ -115,6 +115,11 @@ import com.metrolist.music.constants.AudioProviderMatchOverridesKey
 import com.metrolist.music.constants.AudioProviderOrderKey
 import com.metrolist.music.constants.AudioQualityKey
 import com.metrolist.music.constants.ExperimentalLiveWallpaperKey
+import com.metrolist.music.constants.ExperimentalConfirmBeforeSkipKey
+import com.metrolist.music.constants.ExperimentalDeezerFirstKey
+import com.metrolist.music.constants.ExperimentalDeezerResolverFallbackKey
+import com.metrolist.music.constants.ExperimentalPlaybackDiagnosticsKey
+import com.metrolist.music.constants.ExperimentalProviderPlaybackTimeoutKey
 import com.metrolist.music.constants.isPlaybackProvider
 import com.metrolist.music.playback.CanvasWallpaperService
 import com.metrolist.music.utils.PreferenceCache
@@ -285,6 +290,7 @@ import com.metrolist.music.providers.IsrcResolver
 import com.metrolist.music.providers.ProviderIsrc
 import com.metrolist.music.providers.ProviderMatchOverride
 import com.metrolist.music.providers.ProviderMatchOverrides
+import com.metrolist.music.providers.ExperimentalPlaybackPolicy
 import com.metrolist.music.providers.TidalHomeFeedProvider
 import com.metrolist.music.qobuz.QobuzAudioProvider
 import com.metrolist.music.soundcloud.SoundCloudAudioProvider
@@ -350,6 +356,7 @@ import java.time.LocalDateTime
 import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -1891,6 +1898,10 @@ class MusicService :
 
         player.pause()
         consecutivePlaybackErr = 0
+    }
+
+    fun skipAfterExperimentalFailure() {
+        skipOnError()
     }
 
     private fun stopOnError() {
@@ -4271,6 +4282,11 @@ class MusicService :
      * Handles final failure when all recovery attempts have been exhausted.
      */
     private fun handleFinalFailure() {
+        if (dataStore.get(ExperimentalConfirmBeforeSkipKey, false)) {
+            Timber.tag(TAG).d("All recovery attempts exhausted; waiting for explicit retry or skip")
+            stopOnError()
+            return
+        }
         val autoSkipOnError = dataStore.get(AutoSkipNextOnErrorKey, false)
         val autoplay = dataStore.get(AutoplayKey, true)
         val canAdvance = player.hasNextMediaItem()
@@ -5449,7 +5465,8 @@ class MusicService :
         val attemptedProviders = mutableSetOf<AudioProviderOrderItem>()
         val spotifyIsrc = resolveSpotifyIsrcForMatching(mediaId, song, queuedMetadata)
         val orderedProviders =
-            buildList {
+            ExperimentalPlaybackPolicy.prioritizeDeezer(
+                providers = buildList {
                 providerOverride?.provider?.let(::add)
                 if (directSoundCloudMediaId) add(AudioProviderOrderItem.SOUNDCLOUD)
                 if (directTidalUsesDeezerStreams) {
@@ -5459,7 +5476,9 @@ class MusicService :
                 }
                 if (directDeezerMediaId) add(AudioProviderOrderItem.DEEZER)
                 addAll(audioProviderOrder)
-            }.distinct()
+                }.distinct(),
+                enabled = dataStore.get(ExperimentalDeezerFirstKey, false),
+            )
 
         fun isForcedProvider(provider: AudioProviderOrderItem): Boolean =
             providerOverride?.provider == provider
@@ -5694,7 +5713,20 @@ class MusicService :
         }
 
         for (provider in orderedProviders) {
-            attemptProvider(provider)?.let { return it }
+            val startedAt = System.nanoTime()
+            val resolved =
+                if (dataStore.get(ExperimentalProviderPlaybackTimeoutKey, false)) {
+                    withTimeoutOrNull(20_000L) { attemptProvider(provider) }
+                } else {
+                    attemptProvider(provider)
+                }
+            if (dataStore.get(ExperimentalPlaybackDiagnosticsKey, false)) {
+                val durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+                Timber.tag(TAG).i(
+                    "Experimental playback attempt: provider=$provider durationMs=$durationMs success=${resolved != null}",
+                )
+            }
+            resolved?.let { return it }
         }
 
         if (directTidalUsesDeezerStreams) {
@@ -5932,6 +5964,7 @@ class MusicService :
             quality = quality,
             fastMode = fastMode,
             proxyUrl = proxyUrl,
+            experimentalResolverFallback = dataStore.get(ExperimentalDeezerResolverFallbackKey, false),
         )
     }
 

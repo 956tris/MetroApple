@@ -43,6 +43,7 @@ import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.DeezerResolverUrlKey
+import com.metrolist.music.constants.ExperimentalAccurateProviderHealthKey
 import com.metrolist.music.deezer.DeezerAudioProvider
 import com.metrolist.music.constants.TidalResolverEndpointsKey
 import com.metrolist.music.constants.QobuzCustomInstancesKey
@@ -69,11 +70,13 @@ fun ProviderHealthScreen(
     )
     val tidalResolverEndpoints by rememberPreference(TidalResolverEndpointsKey, "")
     val qobuzCustomInstances by rememberPreference(QobuzCustomInstancesKey, "")
-    val targets = remember(deezerResolverUrl, tidalResolverEndpoints, qobuzCustomInstances) {
+    val accurateProviderHealth by rememberPreference(ExperimentalAccurateProviderHealthKey, false)
+    val targets = remember(deezerResolverUrl, tidalResolverEndpoints, qobuzCustomInstances, accurateProviderHealth) {
         ProviderHealthChecker.targets(
             deezerResolverUrl = deezerResolverUrl,
             tidalResolverEndpoints = tidalResolverEndpoints,
             qobuzCustomInstances = qobuzCustomInstances,
+            useUniqueTargetIds = accurateProviderHealth,
         )
     }
     var refreshCounter by remember { mutableIntStateOf(0) }

@@ -15,6 +15,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import com.metrolist.music.constants.DeezerAudioQuality
 import com.metrolist.music.constants.DeezerProxyMode
+import com.metrolist.music.providers.ExperimentalPlaybackPolicy
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -82,6 +83,7 @@ object DeezerAudioProvider {
         val quality: DeezerAudioQuality,
         val fastMode: Boolean = false,
         val proxyUrl: String = DEFAULT_PROXY_URL,
+        val experimentalResolverFallback: Boolean = false,
     )
 
     data class Resolved(
@@ -150,6 +152,31 @@ object DeezerAudioProvider {
     private val lastResolverRequestAtMs = AtomicLong(0L)
 
     fun resolve(query: Query): Resolved {
+        if (!query.experimentalResolverFallback) {
+            return resolveWithResolver(query)
+        }
+
+        val resolverUrls = ExperimentalPlaybackPolicy.deezerResolverUrls(
+            primary = query.resolverUrl,
+            fallback = RENDER_RESOLVER_URL,
+            enabled = true,
+        )
+            .map(::normalizeResolverUrl)
+            .distinct()
+        var lastError: Throwable? = null
+        resolverUrls.forEach { resolverUrl ->
+            runCatching {
+                resolveWithResolver(query.copy(resolverUrl = resolverUrl.toString()))
+            }.onSuccess { return it }
+                .onFailure { lastError = it }
+        }
+        throw DeezerResolutionException(
+            "All Deezer resolvers failed for ${query.title}",
+            lastError,
+        )
+    }
+
+    private fun resolveWithResolver(query: Query): Resolved {
         val resolverUrl = normalizeResolverUrl(query.resolverUrl)
         val proxyUrl = normalizeProxyUrl(query.proxyUrl)
         val directTrackId = query.mediaId.toDeezerTrackIdOrNull(allowPlainNumeric = false)

@@ -47,6 +47,13 @@ import com.metrolist.music.constants.ExperimentalLiveWallpaperKey
 import com.metrolist.music.constants.ExperimentalGalaxyBlurAdaptiveArtworkKey
 import com.metrolist.music.constants.ExperimentalGalaxyBlurMirroredColorsKey
 import com.metrolist.music.constants.ExperimentalSmoothInlineLyricsKey
+import com.metrolist.music.constants.ExperimentalAccurateProviderHealthKey
+import com.metrolist.music.constants.ExperimentalConfirmBeforeSkipKey
+import com.metrolist.music.constants.ExperimentalDeezerFirstKey
+import com.metrolist.music.constants.ExperimentalDeezerResolverFallbackKey
+import com.metrolist.music.constants.ExperimentalFastProviderMatchSearchKey
+import com.metrolist.music.constants.ExperimentalPlaybackDiagnosticsKey
+import com.metrolist.music.constants.ExperimentalProviderPlaybackTimeoutKey
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
@@ -86,6 +93,34 @@ fun ExperimentsSettings(
     )
     val (liveWallpaper, onLiveWallpaperChange) = rememberPreference(
         key = ExperimentalLiveWallpaperKey,
+        defaultValue = false,
+    )
+    val (fastProviderMatchSearch, onFastProviderMatchSearchChange) = rememberPreference(
+        key = ExperimentalFastProviderMatchSearchKey,
+        defaultValue = false,
+    )
+    val (providerPlaybackTimeout, onProviderPlaybackTimeoutChange) = rememberPreference(
+        key = ExperimentalProviderPlaybackTimeoutKey,
+        defaultValue = false,
+    )
+    val (deezerFirst, onDeezerFirstChange) = rememberPreference(
+        key = ExperimentalDeezerFirstKey,
+        defaultValue = false,
+    )
+    val (deezerResolverFallback, onDeezerResolverFallbackChange) = rememberPreference(
+        key = ExperimentalDeezerResolverFallbackKey,
+        defaultValue = false,
+    )
+    val (confirmBeforeSkip, onConfirmBeforeSkipChange) = rememberPreference(
+        key = ExperimentalConfirmBeforeSkipKey,
+        defaultValue = false,
+    )
+    val (playbackDiagnostics, onPlaybackDiagnosticsChange) = rememberPreference(
+        key = ExperimentalPlaybackDiagnosticsKey,
+        defaultValue = false,
+    )
+    val (accurateProviderHealth, onAccurateProviderHealthChange) = rememberPreference(
+        key = ExperimentalAccurateProviderHealthKey,
         defaultValue = false,
     )
     var showAppleMusicLyricsSizeDialog by rememberSaveable { mutableStateOf(false) }
@@ -265,6 +300,61 @@ fun ExperimentsSettings(
             ),
         )
 
+        Material3SettingsGroup(
+            title = stringResource(R.string.experiments_playback_reliability),
+            items = listOf(
+                experimentalSwitchItem(
+                    icon = R.drawable.speed,
+                    title = stringResource(R.string.experimental_fast_provider_match_search),
+                    description = stringResource(R.string.experimental_fast_provider_match_search_desc),
+                    checked = fastProviderMatchSearch,
+                    onCheckedChange = onFastProviderMatchSearchChange,
+                ),
+                experimentalSwitchItem(
+                    icon = R.drawable.timer,
+                    title = stringResource(R.string.experimental_provider_playback_timeout),
+                    description = stringResource(R.string.experimental_provider_playback_timeout_desc),
+                    checked = providerPlaybackTimeout,
+                    onCheckedChange = onProviderPlaybackTimeoutChange,
+                ),
+                experimentalSwitchItem(
+                    icon = R.drawable.music_note,
+                    title = stringResource(R.string.experimental_deezer_first),
+                    description = stringResource(R.string.experimental_deezer_first_desc),
+                    checked = deezerFirst,
+                    onCheckedChange = onDeezerFirstChange,
+                ),
+                experimentalSwitchItem(
+                    icon = R.drawable.refresh,
+                    title = stringResource(R.string.experimental_deezer_resolver_fallback),
+                    description = stringResource(R.string.experimental_deezer_resolver_fallback_desc),
+                    checked = deezerResolverFallback,
+                    onCheckedChange = onDeezerResolverFallbackChange,
+                ),
+                experimentalSwitchItem(
+                    icon = R.drawable.error,
+                    title = stringResource(R.string.experimental_confirm_before_skip),
+                    description = stringResource(R.string.experimental_confirm_before_skip_desc),
+                    checked = confirmBeforeSkip,
+                    onCheckedChange = onConfirmBeforeSkipChange,
+                ),
+                experimentalSwitchItem(
+                    icon = R.drawable.bug_report,
+                    title = stringResource(R.string.experimental_playback_diagnostics),
+                    description = stringResource(R.string.experimental_playback_diagnostics_desc),
+                    checked = playbackDiagnostics,
+                    onCheckedChange = onPlaybackDiagnosticsChange,
+                ),
+                experimentalSwitchItem(
+                    icon = R.drawable.cloud,
+                    title = stringResource(R.string.experimental_accurate_provider_health),
+                    description = stringResource(R.string.experimental_accurate_provider_health_desc),
+                    checked = accurateProviderHealth,
+                    onCheckedChange = onAccurateProviderHealthChange,
+                ),
+            ),
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
     }
 
@@ -348,3 +438,31 @@ fun ExperimentsSettings(
         }
     }
 }
+
+@Composable
+private fun experimentalSwitchItem(
+    icon: Int,
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+): Material3SettingsItem =
+    Material3SettingsItem(
+        icon = painterResource(icon),
+        title = { Text(title) },
+        description = { Text(description) },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                thumbContent = {
+                    Icon(
+                        painter = painterResource(if (checked) R.drawable.check else R.drawable.close),
+                        contentDescription = null,
+                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                    )
+                },
+            )
+        },
+        onClick = { onCheckedChange(!checked) },
+    )
