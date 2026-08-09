@@ -103,6 +103,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
+import com.metrolist.innertube.models.YouTubeClient
 import com.metrolist.lastfm.LastFM
 import com.metrolist.music.MainActivity
 import com.metrolist.music.R
@@ -485,11 +486,12 @@ class MusicService :
         }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var youtubeMusicHistoryFailureNotified = false
     private val youtubeMusicHistorySyncManager =
         YouTubeMusicHistorySyncManager(
             scope = scope,
             isEnabled = { dataStore.get(ExperimentalYouTubeMusicHistorySyncKey, false) },
-            isAuthenticated = { !YouTube.cookie.isNullOrBlank() },
+            isAuthenticated = { YouTube.hasBrowserAuthentication },
             reportPlayback = ::reportYouTubeMusicHistoryPlayback,
         )
 
@@ -3075,45 +3077,80 @@ class MusicService :
             .replace(Regex("\\s+"), " ")
             .trim()
 
-    private suspend fun reportYouTubeMusicHistoryPlayback(videoId: String): Boolean =
+    private suspend fun reportYouTubeMusicHistoryPlayback(
+        videoId: String,
+        playedSeconds: Double,
+    ): Boolean =
         withContext(Dispatchers.IO) {
-            repeat(2) { attempt ->
-                val playbackTrackingUrl =
+            val initialHistoryCount = youtubeMusicHistoryOccurrenceCount(videoId)
+            var playbackTracking =
+                YouTube
+                    .player(videoId, client = YouTubeClient.WEB_REMIX)
+                    .getOrNull()
+                    ?.playbackTracking
+            if (playbackTracking == null) {
+                delay(1.seconds)
+                playbackTracking =
                     YouTube
-                        .player(videoId)
+                        .player(videoId, client = YouTubeClient.WEB_REMIX)
                         .getOrNull()
                         ?.playbackTracking
-                        ?.videostatsPlaybackUrl
-                        ?.baseUrl
-                        ?: return@withContext false
+            }
 
-                val response =
+            val registration =
+                playbackTracking?.let { tracking ->
                     YouTube
-                        .registerPlayback(playbackTracking = playbackTrackingUrl)
-                        .getOrNull()
-                        ?: return@repeat
-                if (response.status.value !in 200..299) return@repeat
-
-                delay(2.seconds)
-                val appearedInHistory =
-                    YouTube
-                        .musicHistory()
-                        .getOrNull()
-                        ?.sections
-                        ?.any { section -> section.songs.any { it.id == videoId } } == true
-                if (appearedInHistory) {
-                    Timber.tag(TAG).d("YouTube Music history synchronized for $videoId")
-                    return@withContext true
+                        .registerPlaybackTracking(
+                            playbackTracking = tracking,
+                            playedSeconds = playedSeconds,
+                        ).onFailure { error ->
+                            Timber.tag(TAG).w(error, "YouTube Music tracking request failed for %s", videoId)
+                        }.getOrNull()
                 }
-                Timber.tag(TAG).w(
-                    "YouTube Music history verification failed for %s on attempt %d",
+
+            if (registration != null) {
+                Timber.tag(TAG).d(
+                    "YouTube Music tracking sent for %s: playback=%d firstWatchtime=%s atr=%s finalWatchtime=%s",
                     videoId,
-                    attempt + 1,
+                    registration.playbackStatus,
+                    registration.firstWatchtimeStatus,
+                    registration.attributionStatus,
+                    registration.finalWatchtimeStatus,
                 )
-                delay(3.seconds)
+
+                repeat(10) {
+                    delay(2.seconds)
+                    if (youtubeMusicHistoryOccurrenceCount(videoId) > initialHistoryCount) {
+                        youtubeMusicHistoryFailureNotified = false
+                        Timber.tag(TAG).d("YouTube Music history synchronized for $videoId")
+                        return@withContext true
+                    }
+                }
+            } else if (playbackTracking == null) {
+                Timber.tag(TAG).w("Authenticated WEB_REMIX returned no tracking data for %s", videoId)
+            }
+
+            Timber.tag(TAG).w("YouTube Music history verification failed for %s", videoId)
+            if (!youtubeMusicHistoryFailureNotified) {
+                youtubeMusicHistoryFailureNotified = true
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@MusicService,
+                        getString(R.string.youtube_music_history_sync_failed),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
             }
             false
         }
+
+    private suspend fun youtubeMusicHistoryOccurrenceCount(videoId: String): Int =
+        YouTube
+            .musicHistory()
+            .getOrNull()
+            ?.sections
+            .orEmpty()
+            .sumOf { section -> section.songs.count { it.id == videoId } }
 
     override fun onMediaItemTransition(
         mediaItem: MediaItem?,

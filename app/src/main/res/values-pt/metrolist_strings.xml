@@ -458,4 +458,7 @@
     <string name="lyrics_romanize_punjabi">Romanizar letras em Panjabi</string>
     <string name="audio_offload_disabled_by_crossfade">Desativado porque o crossfade está ativo</string>
     <string name="speed">Velocidade de Reprodução</string>
+    <string name="experimental_youtube_music_history_sync">Sincronizar reproduções com o histórico do YouTube Music</string>
+    <string name="experimental_youtube_music_history_sync_desc">Após uma reprodução real, envia o acompanhamento autenticado de reprodução e tempo assistido ao YouTube Music. O histórico do YouTube deve estar ativado.</string>
+    <string name="youtube_music_history_sync_failed">O YouTube Music não confirmou a entrada no histórico. Verifique se a conta continua conectada e se o histórico do YouTube está ativado.</string>
 </resources>

@@ -16,9 +16,10 @@ internal class YouTubeMusicHistorySyncManager(
     private val scope: CoroutineScope,
     private val isEnabled: () -> Boolean,
     private val isAuthenticated: () -> Boolean,
-    private val reportPlayback: suspend (String) -> Boolean,
+    private val reportPlayback: suspend (String, Double) -> Boolean,
 ) {
     private var syncJob: Job? = null
+    private var reportAfterMs = 0L
     private var remainingDelayMs = 0L
     private var delayStartedAtMs = 0L
     private var activeVideoId: String? = null
@@ -31,7 +32,8 @@ internal class YouTubeMusicHistorySyncManager(
 
         stop()
         activeVideoId = videoId
-        remainingDelayMs = YouTubeMusicHistorySyncPolicy.delayBeforeReportMs(durationMs)
+        reportAfterMs = YouTubeMusicHistorySyncPolicy.delayBeforeReportMs(durationMs)
+        remainingDelayMs = reportAfterMs
         schedule(videoId)
     }
 
@@ -61,7 +63,7 @@ internal class YouTubeMusicHistorySyncManager(
             delay(remainingDelayMs)
             delayStartedAtMs = 0L
             if (activeVideoId == videoId && isEnabled() && isAuthenticated()) {
-                if (reportPlayback(videoId)) {
+                if (reportPlayback(videoId, reportAfterMs / 1_000.0)) {
                     reportedVideoId = videoId
                 }
             }
@@ -72,6 +74,7 @@ internal class YouTubeMusicHistorySyncManager(
     private fun stop() {
         syncJob?.cancel()
         syncJob = null
+        reportAfterMs = 0L
         remainingDelayMs = 0L
         delayStartedAtMs = 0L
         activeVideoId = null
