@@ -64,6 +64,7 @@ import com.metrolist.music.constants.PersistentShuffleAcrossQueuesKey
 import com.metrolist.music.constants.PreventDuplicateTracksInQueueKey
 import com.metrolist.music.constants.RememberShuffleAndRepeatKey
 import com.metrolist.music.constants.ResumeOnBluetoothConnectKey
+import com.metrolist.music.constants.InputControlEnabledKey
 import com.metrolist.music.constants.SeekExtraSeconds
 import com.metrolist.music.constants.ShufflePlaylistFirstKey
 import com.metrolist.music.constants.SimilarContent
@@ -225,6 +226,10 @@ fun PlayerSettings(
     val (resumeOnBluetoothConnect, onResumeOnBluetoothConnectChange) = rememberPreference(
         ResumeOnBluetoothConnectKey,
         defaultValue = false
+    )
+    val (inputControlEnabled, onInputControlEnabledChange) = rememberPreference(
+        InputControlEnabledKey,
+        defaultValue = true
     )
     val (keepScreenOn, onKeepScreenOnChange) = rememberPreference(
         KeepScreenOn,
@@ -1164,6 +1169,27 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { onResumeOnBluetoothConnectChange(!resumeOnBluetoothConnect) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(if (inputControlEnabled) R.drawable.lock_open else R.drawable.lock),
+                    title = { Text(stringResource(R.string.external_input_control)) },
+                    description = { Text(stringResource(R.string.external_input_control_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = inputControlEnabled,
+                            onCheckedChange = onInputControlEnabledChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (inputControlEnabled) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onInputControlEnabledChange(!inputControlEnabled) }
                 ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.screenshot),

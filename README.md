@@ -1,31 +1,12 @@
-<div align="center">
-
-<img src="fastlane/metadata/android/en-US/images/icon.png" alt="MetroFuse app icon" width="180" />
-
-# MetroFuse
-
-### A fused Android music client for streaming, discovery, playlists, lyrics, and provider fallback.
-
-<br/>
-
-[![Latest release](https://img.shields.io/badge/releases-GitHub-181717?style=for-the-badge&logo=github&labelColor=0d1117)](releases/latest)
-[![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=for-the-badge&labelColor=0d1117)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/956tris/MetroFuse/total?style=for-the-badge&labelColor=0d1117)](releases)
-[![Android](https://img.shields.io/badge/platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white&labelColor=0d1117)](#download)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white&labelColor=0d1117)](https://discord.gg/ddHxkVDgt3) join ts 💔
-<br/>
-
-[**Download**](#download) - [**Features**](#features) - [**Screenshots**](#screenshots) - [**Credits**](#credits) - [**Disclaimer**](#disclaimer)
-
-</div>
-
-> [!WARNING]
-> MetroFuse connects to third-party services selected by the user. Availability, quality, catalog coverage, login behavior, and regional access can change at any time and may require your own account, VPN, proxy, or provider access.
-> MetroFuse also is not Responsible for any actions taken by these third-parties to the users accounts as this fork ovs dont have a ton of users to test how these services handle their policies :D 
-
-Additionally this unoffical fork of Metrolist is completely different backend and frontend wise dont ask the metrolist devs for help with this fork.
-
----
+> [!NOTE]
+> **Why this fork exists (and why your headset won't haunt you anymore)**
+>
+> MetroFuse is an unofficial fork of [Metrolist](https://github.com/MetrolistGroup/Metrolist).
+>
+> Among various streaming and provider tweaks, this fork includes a dedicated **External Input Control** master killswitch. Why? Because my headset developed a wonderful defect where it randomly fires phantom play/pause and track-skip signals at the worst possible moments.
+>
+> Rather than doing the rational thing and buying a new pair of headphones like a functioning member of society, I thought an entire Media3 session deactivation, `ForwardingPlayer` command lockdown, and keycode passthrough system to forcefully isolate the player from the hardware's ghostly tantrums would be easier. If your Bluetooth or wired gear is equally possessed, this toggle was made for you.
+> else go to the official repo > [MetroFuse](https://github.com/956tris/MetroFuse).
 
 ## What Is MetroFuse?
 
@@ -37,21 +18,21 @@ Im back :D
 
 ## Features
 
-| Playback | Discovery |
-| --- | --- |
-| Qobuz-first playback routing | YouTube Music home feed and many other frontends |
-| Provider fallback when a stream misses | Spotify-style personalized frontpage |
-| Background playback | TIDAL-style personalized frontpage |
-| Downloads and cache for offline use | Search songs, albums, artists, videos, and playlists |
-| Skip silence and sleep timer | Open external playlists inside MetroFuse |
+| Playback                               | Discovery                                            |
+| -------------------------------------- | ---------------------------------------------------- |
+| Qobuz-first playback routing           | YouTube Music home feed and many other frontends     |
+| Provider fallback when a stream misses | Spotify-style personalized frontpage                 |
+| Background playback                    | TIDAL-style personalized frontpage                   |
+| Downloads and cache for offline use    | Search songs, albums, artists, videos, and playlists |
+| Skip silence and sleep timer           | Open external playlists inside MetroFuse             |
 
-| Audio | Library |
-| --- | --- |
-| Format, bitrate, and sample-rate display when available | Full library management |
-| Audio normalization | Local playlists |
-| Tempo and pitch control | Import playlists |
-| Equalizer | Reorder songs in playlist or queue |
-| Spotify Canvas support and animated album covers | Lyrics, translation, and synced lyrics |
+| Audio                                                   | Library                                |
+| ------------------------------------------------------- | -------------------------------------- |
+| Format, bitrate, and sample-rate display when available | Full library management                |
+| Audio normalization                                     | Local playlists                        |
+| Tempo and pitch control                                 | Import playlists                       |
+| Equalizer                                               | Reorder songs in playlist or queue     |
+| Spotify Canvas support and animated album covers        | Lyrics, translation, and synced lyrics |
 
 ---
 
@@ -95,11 +76,10 @@ Special thanks to:
 - [Metrolist](https://github.com/MetrolistGroup/Metrolist)
 - [InnerTune](https://github.com/z-huang/InnerTune)
 - [OuterTune](https://github.com/DD3Boh/OuterTune)
-  
+
 - [Better Lyrics](https://better-lyrics.boidu.dev)
 - [MusicRecognizer](https://github.com/aleksey-saenko/MusicRecognizer)
 - [Canvas Api](https://github.com/Paxsenix0/Spotify-Canvas-API)
-
 
 ## License
 

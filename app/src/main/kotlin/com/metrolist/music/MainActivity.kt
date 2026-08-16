@@ -18,6 +18,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -146,6 +147,7 @@ import com.metrolist.music.constants.EnableHighRefreshRateKey
 import com.metrolist.music.constants.ExperimentalLyricsKey
 import com.metrolist.music.constants.HomeFeedSource
 import com.metrolist.music.constants.HomeFeedSourceKey
+import com.metrolist.music.constants.InputControlEnabledKey
 import com.metrolist.music.constants.SoundCloudAuthTokenKey
 import com.metrolist.music.constants.SoundCloudSessionClientIdKey
 import com.metrolist.music.constants.LastSeenVersionKey
@@ -401,6 +403,24 @@ class MainActivity : ComponentActivity() {
         } else {
             pendingIntent = intent
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val inputControlEnabled = dataStore.get(InputControlEnabledKey, true)
+        if (!inputControlEnabled) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_HEADSETHOOK,
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                KeyEvent.KEYCODE_MEDIA_PLAY,
+                KeyEvent.KEYCODE_MEDIA_PAUSE,
+                KeyEvent.KEYCODE_MEDIA_NEXT,
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                KeyEvent.KEYCODE_MEDIA_STOP,
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+                KeyEvent.KEYCODE_MEDIA_REWIND -> return super.dispatchKeyEvent(event)
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")

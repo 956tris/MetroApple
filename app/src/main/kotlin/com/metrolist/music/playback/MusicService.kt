@@ -211,6 +211,7 @@ import com.metrolist.music.constants.SoundCloudAuthTokenKey
 import com.metrolist.music.constants.RememberShuffleAndRepeatKey
 import com.metrolist.music.constants.RepeatModeKey
 import com.metrolist.music.constants.ResumeOnBluetoothConnectKey
+import com.metrolist.music.constants.InputControlEnabledKey
 import com.metrolist.music.constants.ScrobbleDelayPercentKey
 import com.metrolist.music.constants.ScrobbleDelaySecondsKey
 import com.metrolist.music.constants.ScrobbleMinSongDurationKey
@@ -608,6 +609,21 @@ class MusicService :
     private var crossfadeJob: Job? = null
 
     private lateinit var mediaSession: MediaLibrarySession
+    private lateinit var gatingPlayer: InputControlGatingPlayer
+    @Volatile
+    private var isSessionReleased = false
+
+    /**
+     * Single source of truth for the external input control toggle.
+     * When false, the media session is released (invisible to system routing)
+     * and the gating player blocks all transport commands.
+     * Initialized lazily in [onCreate] once the DataStore is available.
+     */
+    private lateinit var inputControlEnabled: kotlinx.coroutines.flow.StateFlow<Boolean>
+
+    /** Read-only accessor for the callback and other consumers. */
+    val isInputControlEnabled: Boolean
+        get() = if (::inputControlEnabled.isInitialized) inputControlEnabled.value else true
 
     // Tracks if player has been properly initilized
     private val playerInitialized = MutableStateFlow(false)
@@ -962,9 +978,10 @@ class MusicService :
             toggleLibrary = ::toggleLibrary
             addToTargetPlaylist = ::addToTargetPlaylist
         }
+        gatingPlayer = InputControlGatingPlayer(player)
         mediaSession =
             MediaLibrarySession
-                .Builder(this, player, mediaLibrarySessionCallback)
+                .Builder(this, gatingPlayer, mediaLibrarySessionCallback)
                 .setSessionActivity(
                     PendingIntent.getActivity(
                         this,
@@ -980,6 +997,26 @@ class MusicService :
         if (dataStore.get(RememberShuffleAndRepeatKey, true)) {
             player.shuffleModeEnabled = dataStore.get(ShuffleModeKey, false)
         }
+
+        // Initialize the external input control toggle as a single source of truth
+        inputControlEnabled =
+            dataStore.data
+                .map { it[InputControlEnabledKey] ?: true }
+                .distinctUntilChanged()
+                .stateIn(scope, SharingStarted.Eagerly, dataStore.get(InputControlEnabledKey, true))
+
+        // Observe toggle changes and manage session + gating player state
+        dataStore.data
+            .map { it[InputControlEnabledKey] ?: true }
+            .distinctUntilChanged()
+            .collectLatest(scope) { enabled ->
+                gatingPlayer.setInputControlEnabled(enabled)
+                if (enabled) {
+                    rebuildMediaSessionIfNeeded()
+                } else {
+                    releaseMediaSessionForInputGating()
+                }
+            }
 
         // Keep a connected controller so that notification works
         val sessionToken = SessionToken(this, ComponentName(this, MusicService::class.java))
@@ -7545,7 +7582,9 @@ class MusicService :
         abandonAudioFocus()
         closeAudioEffectSession()
         mediaLibrarySessionCallback.release()
-        mediaSession.release()
+        if (!isSessionReleased) {
+            mediaSession.release()
+        }
         player.removeListener(this)
         player.removeListener(sleepTimer)
         playerSilenceProcessors.remove(player)
@@ -7592,7 +7631,41 @@ class MusicService :
         // User can still dismiss it via the 'X' or system notification controls.
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
+    /**
+     * Releases the media session to make the app invisible to system media-button routing.
+     * The player continues running; only external control surfaces are detached.
+     */
+    private fun releaseMediaSessionForInputGating() {
+        if (isSessionReleased || !::mediaSession.isInitialized) return
+        Timber.tag(TAG).d("Input control disabled — releasing media session")
+        mediaSession.release()
+        isSessionReleased = true
+    }
+
+    /**
+     * Rebuilds the media session after it was released for input gating.
+     * Reconnects the gating player and callback so external controllers can bind again.
+     */
+    private fun rebuildMediaSessionIfNeeded() {
+        if (!isSessionReleased || !::gatingPlayer.isInitialized) return
+        Timber.tag(TAG).d("Input control enabled — rebuilding media session")
+        mediaSession =
+            MediaLibrarySession
+                .Builder(this, gatingPlayer, mediaLibrarySessionCallback)
+                .setSessionActivity(
+                    PendingIntent.getActivity(
+                        this,
+                        0,
+                        Intent(this, MainActivity::class.java),
+                        PendingIntent.FLAG_IMMUTABLE,
+                    ),
+                ).setBitmapLoader(CoilBitmapLoader(this, scope))
+                .build()
+        isSessionReleased = false
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
+        if (isSessionReleased) null else mediaSession
 
     override fun onUpdateNotification(
         session: MediaSession,
@@ -8415,7 +8488,11 @@ class MusicService :
         sleepTimer.player = player
 
         try {
-            (mediaSession as MediaSession).player = player
+            gatingPlayer = InputControlGatingPlayer(player)
+            gatingPlayer.setInputControlEnabled(isInputControlEnabled)
+            if (!isSessionReleased) {
+                (mediaSession as MediaSession).player = gatingPlayer
+            }
         } catch (e: Exception) {
             timber.log.Timber.e(e, "Failed to swap player in MediaSession")
         }

@@ -403,6 +403,8 @@
     <string name="disable_load_more_when_repeat_all_desc">Don\'t automatically load more songs or similar content when repeat all is enabled</string>
     <string name="pause_music_when_media_is_muted">Pause music when media is muted</string>
     <string name="resume_on_bluetooth_connect">Resume on Bluetooth connection</string>
+    <string name="external_input_control">External input control</string>
+    <string name="external_input_control_desc">Allow headset buttons, Bluetooth, lockscreen, and notification controls to control playback</string>
     <string name="keep_screen_on_when_player_is_expanded">Keep screen on when player is expanded</string>
 
     <string name="crossfade">Crossfade</string>
