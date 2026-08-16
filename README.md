@@ -53,7 +53,7 @@ Im back :D
 
 ## Download
 
-Grab the latest APK from the [GitHub releases page](releases/latest). Use a release build for normal installs; debug builds are only for local testing.
+Clone and Build, I'll add the releases later
 
 ---
 
