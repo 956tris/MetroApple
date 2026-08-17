@@ -8,7 +8,9 @@ package com.metrolist.music.lyrics
 object LyricsProviderRegistry {
     private val providerMap = mapOf(
         "BetterLyrics" to BetterLyricsProvider,
-        "Paxsenix" to PaxsenixLyricsProvider,
+        "PaxsenixAppleMusic" to PaxsenixAppleMusicLyricsProvider,
+        "Musixmatch" to MusixmatchLyricsProvider,
+        "PaxsenixQQMusic" to PaxsenixQQMusicLyricsProvider,
         "LrcLib" to LrcLibLyricsProvider,
         "KuGou" to KuGouLyricsProvider,
         "LyricsPlus" to LyricsPlusProvider,
@@ -28,7 +30,13 @@ object LyricsProviderRegistry {
         if (orderString.isBlank()) {
             return getDefaultProviderOrder()
         }
-        return orderString.split(",").map { it.trim() }.filter { it in providerNames }
+        val saved = orderString.split(",").map { it.trim() }.filter { it in providerNames }
+        // Merge in any providers that exist in the registry but aren't in the
+        // saved order yet (e.g. newly added providers, or renames where the
+        // old name got filtered out above). Preserves the user's existing
+        // ordering and just appends anything missing, in registry order.
+        val missing = providerNames.filter { it !in saved }
+        return saved + missing
     }
 
     fun serializeProviderOrder(providers: List<String>): String {
@@ -40,7 +48,9 @@ object LyricsProviderRegistry {
         "LrcLib",
         "Spotify",
         "KuGou",
-        "Paxsenix",
+        "PaxsenixAppleMusic",
+        "Musixmatch",
+        "PaxsenixQQMusic",
         "LyricsPlus",
         "YouTubeSubtitle",
         "YouTube",

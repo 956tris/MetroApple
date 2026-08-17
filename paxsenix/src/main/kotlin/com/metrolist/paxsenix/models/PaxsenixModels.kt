@@ -103,3 +103,8 @@ data class AppleMusicSongAttributes(
 data class AppleMusicArtwork(
     val url: String
 )
+
+@Serializable
+data class AppleTokenResponse(
+    val token: String
+)

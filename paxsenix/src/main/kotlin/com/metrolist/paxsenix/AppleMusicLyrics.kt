@@ -2,6 +2,7 @@ package com.metrolist.paxsenix
 
 import com.metrolist.music.betterlyrics.TTMLParser
 import com.metrolist.paxsenix.models.AppleMusicSearchResponse
+import com.metrolist.paxsenix.models.AppleTokenResponse
 import com.metrolist.paxsenix.models.LyricsResponse
 import com.metrolist.paxsenix.models.SearchResult
 import io.ktor.client.HttpClient
@@ -255,29 +256,25 @@ internal object AppleMusicLyrics {
         private var cachedToken: String? = null
         private val mutex = Mutex()
 
+        companion object {
+            private const val TOKEN_ENDPOINT = "https://yesitworkssomehow-funny-deeza-api-and-yeah.hf.space/apple/token"
+            private val tokenJson = Json { ignoreUnknownKeys = true }
+        }
+
         suspend fun getToken(): String = mutex.withLock {
             cachedToken?.let { return it }
 
             try {
-                val mainPageResponse = httpClient.get("https://beta.music.apple.com")
-                val mainPageBody = mainPageResponse.bodyAsText()
+                // Instant JWT from a hosted token endpoint instead of scraping
+                // beta.music.apple.com's HTML + JS bundle (slow, and brittle
+                // whenever Apple reshuffles their asset paths).
+                val response = httpClient.get(TOKEN_ENDPOINT)
+                val body = tokenJson.decodeFromString<AppleTokenResponse>(response.bodyAsText())
+                val token = body.token.takeIf { it.isNotBlank() }
+                    ?: throw Exception("Token endpoint returned an empty token")
 
-                val indexJsRegex = Regex("""/assets/index~[^/]+\.js""")
-                val indexJsMatch = indexJsRegex.find(mainPageBody)
-                    ?: throw Exception("Could not find index JS URL")
-
-                val indexJsUri = indexJsMatch.value
-
-                val indexJsResponse = httpClient.get("https://beta.music.apple.com$indexJsUri")
-                val indexJsBody = indexJsResponse.bodyAsText()
-
-                val tokenRegex = Regex("""eyJh([^"]*)""")
-                val tokenMatch = tokenRegex.find(indexJsBody)
-                    ?: throw Exception("Could not find token")
-
-                val token = tokenMatch.value
                 cachedToken = token
-                Timber.d("Fetched new Apple Music token")
+                Timber.d("Fetched new Apple Music token from $TOKEN_ENDPOINT")
                 return token
             } catch (e: Exception) {
                 Timber.e(e, "Error fetching Apple Music token")

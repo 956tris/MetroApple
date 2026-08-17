@@ -24,6 +24,10 @@ val MiniPlayerOutlineKey = booleanPreferencesKey("miniPlayerOutline")
 val AppBackgroundStyleKey = stringPreferencesKey("appBackgroundStyle")
 val MiniPlayerBackgroundStyleKey = stringPreferencesKey("miniPlayerBackgroundStyle")
 
+val EnableMusixmatchKey = booleanPreferencesKey("enableMusixmatch")
+val MusixmatchForceLineSyncedKey = booleanPreferencesKey("musixmatchForceLineSynced")
+val MusixmatchUserTokenKey = stringPreferencesKey("musixmatchUserToken")
+
 enum class AppBackgroundStyle {
     DEFAULT,
     GALAXY,
@@ -94,7 +98,9 @@ val ContentCountryKey = stringPreferencesKey("contentCountry")
 val EnableKugouKey = booleanPreferencesKey("enableKugou")
 val EnableLrcLibKey = booleanPreferencesKey("enableLrclib")
 val EnableBetterLyricsKey = booleanPreferencesKey("enableBetterLyrics")
-val EnablePaxsenixKey = booleanPreferencesKey("enablePaxsenix")
+val EnablePaxsenixAppleMusicKey = booleanPreferencesKey("enablePaxsenixAppleMusic")
+val EnablePaxsenixMusixmatchKey = booleanPreferencesKey("enablePaxsenixMusixmatch")
+val EnablePaxsenixQQMusicKey = booleanPreferencesKey("enablePaxsenixQQMusic")
 val EnableLyricsPlus = booleanPreferencesKey("enableLyricsPlus")
 val EnableSpotifyLyricsKey = booleanPreferencesKey("enableSpotifyLyrics")
 val HideExplicitKey = booleanPreferencesKey("hideExplicit")

@@ -63,7 +63,9 @@ import com.metrolist.music.constants.CountryCodeToName
 import com.metrolist.music.constants.EnableBetterLyricsKey
 import com.metrolist.music.constants.EnableKugouKey
 import com.metrolist.music.constants.EnableLrcLibKey
-import com.metrolist.music.constants.EnablePaxsenixKey
+import com.metrolist.music.constants.EnablePaxsenixAppleMusicKey
+import com.metrolist.music.constants.EnableMusixmatchKey
+import com.metrolist.music.constants.EnablePaxsenixQQMusicKey
 import com.metrolist.music.constants.EnableLyricsPlus
 import com.metrolist.music.constants.EnableSpotifyLyricsKey
 import com.metrolist.music.constants.HideExplicitKey
@@ -125,7 +127,9 @@ fun ContentSettings(
     val (enableKugou, onEnableKugouChange) = rememberPreference(key = EnableKugouKey, defaultValue = true)
     val (enableLrclib, onEnableLrclibChange) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
     val (enableBetterLyrics, onEnableBetterLyricsChange) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
-    val (enablePaxsenix, onEnablePaxsenixChange) = rememberPreference(key = EnablePaxsenixKey, defaultValue = true)
+    val (enablePaxsenixAppleMusic, onEnablePaxsenixAppleMusicChange) = rememberPreference(key = EnablePaxsenixAppleMusicKey, defaultValue = true)
+    val (enableMusixmatch, onEnableMusixmatchChange) = rememberPreference(key = EnableMusixmatchKey, defaultValue = true)
+    val (enablePaxsenixQQMusic, onEnablePaxsenixQQMusicChange) = rememberPreference(key = EnablePaxsenixQQMusicKey, defaultValue = true)
     val (enableLyricsPlus, onEnableLyricsPlusChange) = rememberPreference(key = EnableLyricsPlus, defaultValue = true)
     val (enableSpotifyLyrics, onEnableSpotifyLyricsChange) = rememberPreference(key = EnableSpotifyLyricsKey, defaultValue = true)
     val (lyricsProviderOrder, onLyricsProviderOrderChange) = rememberPreference(
@@ -161,7 +165,9 @@ fun ContentSettings(
     val providerDisplayNames =
         mapOf(
             "BetterLyrics" to "Better Lyrics",
-            "Paxsenix" to "Paxsenix",
+            "PaxsenixAppleMusic" to "Apple Music",
+            "Musixmatch" to "Musixmatch",
+            "PaxsenixQQMusic" to "QQ Music",
             "LrcLib" to "LrcLib",
             "KuGou" to "KuGou",
             "LyricsPlus" to "LyricsPlus",
@@ -463,20 +469,78 @@ fun ContentSettings(
                         Column(
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(stringResource(R.string.enable_paxsenix))
+                            Text(stringResource(R.string.enable_paxsenix_apple_music))
                             Text(
-                                text = stringResource(R.string.enable_paxsenix_desc),
+                                text = stringResource(R.string.enable_paxsenix_apple_music_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Switch(
-                            checked = enablePaxsenix,
-                            onCheckedChange = onEnablePaxsenixChange,
+                            checked = enablePaxsenixAppleMusic,
+                            onCheckedChange = onEnablePaxsenixAppleMusicChange,
                             thumbContent = {
                                 Icon(
                                     painter = painterResource(
-                                        id = if (enablePaxsenix) R.drawable.check else R.drawable.close
+                                        id = if (enablePaxsenixAppleMusic) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.enable_paxsenix_musixmatch))
+                            Text(
+                                text = stringResource(R.string.enable_paxsenix_musixmatch_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = enableMusixmatch,
+                            onCheckedChange = onEnableMusixmatchChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (enableMusixmatch) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.enable_paxsenix_qqmusic))
+                            Text(
+                                text = stringResource(R.string.enable_paxsenix_qqmusic_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = enablePaxsenixQQMusic,
+                            onCheckedChange = onEnablePaxsenixQQMusicChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (enablePaxsenixQQMusic) R.drawable.check else R.drawable.close
                                     ),
                                     contentDescription = null,
                                     modifier = Modifier.size(SwitchDefaults.IconSize)
@@ -636,14 +700,16 @@ fun ContentSettings(
             "LrcLib".takeIf { enableLrclib },
             "KuGou".takeIf { enableKugou },
             "BetterLyrics".takeIf { enableBetterLyrics },
-            "Paxsenix".takeIf { enablePaxsenix },
+            "PaxsenixAppleMusic".takeIf { enablePaxsenixAppleMusic },
+            "Musixmatch".takeIf { enableMusixmatch },
+            "PaxsenixQQMusic".takeIf { enablePaxsenixQQMusic },
             "LyricsPlus".takeIf { enableLyricsPlus },
             "Spotify".takeIf { enableSpotifyLyrics },
         ).filterNotNull().toSet()
         val lyricsIcon = painterResource(R.drawable.lyrics)
         val draggableItems = remember { mutableStateListOf<DraggableLyricsProviderItem>() }
 
-        LaunchedEffect(normalizedOrder, enableLrclib, enableKugou, enableBetterLyrics, enablePaxsenix, enableLyricsPlus, enableSpotifyLyrics) {
+        LaunchedEffect(normalizedOrder, enableLrclib, enableKugou, enableBetterLyrics, enablePaxsenixAppleMusic, enableMusixmatch, enablePaxsenixQQMusic, enableLyricsPlus, enableSpotifyLyrics) {
             val orderedEnabledProviders = normalizedOrder.filter { it in enabledProviders }
             draggableItems.clear()
             draggableItems.addAll(

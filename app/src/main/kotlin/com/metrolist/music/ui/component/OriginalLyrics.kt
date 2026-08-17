@@ -493,6 +493,7 @@ fun OriginalLyrics(
 
     // Professional animation states for smooth Metrolist-style transitions
     var isAnimating by remember { mutableStateOf(false) }
+    var scrollAnimationJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(true) }
 
     // Handle back button press - close selection mode instead of exiting screen
@@ -601,43 +602,47 @@ fun OriginalLyrics(
      * @param targetIndex The index of the lyrics line to scroll to.
      * @param duration The duration of the scroll animation in milliseconds.
      */
-    suspend fun performSmoothPageScroll(
+    fun performSmoothPageScroll(
         targetIndex: Int,
         duration: Int = 1500,
     ) {
-        if (isAnimating) return // Prevent multiple animations
-        val listTargetIndex = resolveListScrollIndex(targetIndex) ?: return
+        // Interrupt any in-flight scroll instead of either dropping this request or
+        // waiting for it to finish — richsync lyrics can have lines closer together
+        // than the previous tween's duration, and letting them queue up produces a
+        // harsh catch-up jump later instead of a continuous glide.
+        scrollAnimationJob?.cancel()
+        scrollAnimationJob = scope.launch {
+            val listTargetIndex = resolveListScrollIndex(targetIndex) ?: return@launch
 
-        isAnimating = true
-        try {
-            val itemInfo = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == listTargetIndex }
-            if (itemInfo != null) {
-                // Item is visible, animate directly to center without sudden jumps
-                val viewportHeight = lazyListState.layoutInfo.viewportEndOffset - lazyListState.layoutInfo.viewportStartOffset
-                val center = lazyListState.layoutInfo.viewportStartOffset + (viewportHeight / 2)
-                val itemCenter = itemInfo.offset + itemInfo.size / 2
-                val offset = itemCenter - center
-                if (kotlin.math.abs(offset) > 10) {
-                    lazyListState.animateScrollBy(
-                        value = offset.toFloat(),
-                        animationSpec = tween(durationMillis = duration),
-                    )
+            isAnimating = true
+            try {
+                val itemInfo = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == listTargetIndex }
+                if (itemInfo != null) {
+                    // Item is visible, animate directly to center without sudden jumps
+                    val viewportHeight = lazyListState.layoutInfo.viewportEndOffset - lazyListState.layoutInfo.viewportStartOffset
+                    val center = lazyListState.layoutInfo.viewportStartOffset + (viewportHeight / 2)
+                    val itemCenter = itemInfo.offset + itemInfo.size / 2
+                    val offset = itemCenter - center
+                    if (kotlin.math.abs(offset) > 10) {
+                        lazyListState.animateScrollBy(
+                            value = offset.toFloat(),
+                            animationSpec = tween(durationMillis = duration),
+                        )
+                    }
+                } else {
+                    // Item is not visible, scroll to it first without animation, then it will be handled in next cycle
+                    lazyListState.scrollToItem(listTargetIndex)
                 }
-            } else {
-                // Item is not visible, scroll to it first without animation, then it will be handled in next cycle
-                lazyListState.scrollToItem(listTargetIndex)
+            } finally {
+                isAnimating = false
             }
-        } finally {
-            isAnimating = false
         }
     }
 
     val latestShowLyrics by rememberUpdatedState(showLyrics)
     val latestResyncLyrics by rememberUpdatedState(
         newValue = {
-            scope.launch {
-                performSmoothPageScroll(currentLineIndex, 1500)
-            }
+            performSmoothPageScroll(currentLineIndex, 1500)
             isAutoScrollEnabled = true
         },
     )
