@@ -170,6 +170,9 @@ android {
     namespace = "com.metrolist.music"
     compileSdk = 36
 
+    ndkVersion = "27.3.13750724"
+    ndkPath = "C:/Users/grape/platform-tools/ndk/android-ndk-r27d"
+
     defaultConfig {
         applicationId = applicationIdOverride ?: baseApplicationId
         minSdk = 26
