@@ -153,6 +153,7 @@ import com.metrolist.music.constants.ExperimentalSmoothInlineLyricsKey
 import com.metrolist.music.constants.HidePlayerThumbnailKey
 import com.metrolist.music.constants.HideStatusBarOnFullscreenKey
 import com.metrolist.music.constants.KeepScreenOn
+import com.metrolist.music.constants.LivePlaybackBitrateKey
 import com.metrolist.music.constants.PlayerBackgroundStyle
 import com.metrolist.music.constants.PlayerBackgroundStyleKey
 import com.metrolist.music.constants.PlayerButtonsStyle
@@ -484,6 +485,8 @@ fun BottomSheetPlayer(
             defaultValue = true,
         )
     val useLegacyQualityLabel by rememberPreference(PlayerLegacyQualityLabelKey, defaultValue = false)
+    val livePlaybackBitrateEnabled by rememberPreference(LivePlaybackBitrateKey, defaultValue = false)
+    val currentLivePlaybackBitrate by playerConnection.currentLivePlaybackBitrate.collectAsStateWithLifecycle()
     val (hidePlayerThumbnail, onHidePlayerThumbnailChange) = rememberPreference(HidePlayerThumbnailKey, false)
     val (hideStatusBarOnFullscreen) = rememberPreference(HideStatusBarOnFullscreenKey, false)
     val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
@@ -2647,7 +2650,7 @@ fun BottomSheetPlayer(
                         }
                     }
 
-                    if ((useLegacyQualityLabel && displayedPlayerQualityLabel != null) || displayedPlayerSourceLabel != null) {
+                    if ((useLegacyQualityLabel && (displayedPlayerQualityLabel != null || (livePlaybackBitrateEnabled && currentLivePlaybackBitrate != null))) || displayedPlayerSourceLabel != null) {
                         Spacer(modifier = Modifier.height(6.dp))
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -2658,11 +2661,36 @@ fun BottomSheetPlayer(
                                     .padding(horizontal = PlayerHorizontalPadding),
                         ) {
                             if (useLegacyQualityLabel) {
-                                displayedPlayerQualityLabel?.let { label ->
+                                if (displayedPlayerQualityLabel != null) {
                                     PlayerQualityLabelText(
-                                        label = label,
+                                        label = displayedPlayerQualityLabel,
+                                        format = displayFormat,
+                                        liveBitrate = if (livePlaybackBitrateEnabled) currentLivePlaybackBitrate else null,
                                         color = TextBackgroundColor,
                                     )
+                                } else if (livePlaybackBitrateEnabled) {
+                                    currentLivePlaybackBitrate?.let { bitrate ->
+                                        val bitrateText = buildAnnotatedString {
+                                            append("${bitrate / 1000} kbps")
+                                            displayFormat?.sampleRate?.let { sampleRate ->
+                                                append(" • ")
+                                                append(sampleRate.formatSampleRateLabel())
+                                            }
+                                        }
+                                        Text(
+                                            text = bitrateText,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = TextBackgroundColor,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier =
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .basicMarquee(iterations = 1, initialDelayMillis = 2200, velocity = 18.dp),
+                                        )
+                                    }
                                 }
                             }
                             displayedPlayerSourceLabel?.let { source ->
@@ -2901,6 +2929,8 @@ private fun QualityBadge(
 @Composable
 private fun PlayerQualityLabelText(
     label: PlayerQualityLabel,
+    format: FormatEntity?,
+    liveBitrate: Int?,
     color: Color,
 ) {
     if (label == PlayerQualityLabel.ATMOS) {
@@ -2913,12 +2943,29 @@ private fun PlayerQualityLabelText(
                     .height(16.dp),
         )
     } else {
+        val bitrate = liveBitrate ?: format?.bitrate
+        val qualityText = buildAnnotatedString {
+            append(
+                when (label) {
+                    PlayerQualityLabel.LOSSLESS -> stringResource(R.string.player_quality_lossless)
+                    PlayerQualityLabel.HI_RES_LOSSLESS -> stringResource(R.string.player_quality_hires_lossless)
+                    PlayerQualityLabel.ATMOS -> stringResource(R.string.player_quality_atmos)
+                },
+            )
+
+            if (bitrate != null && bitrate > 0) {
+                append(" • ")
+                append("${bitrate / 1000} kbps")
+            }
+
+            format?.sampleRate?.let { sampleRate ->
+                append(" • ")
+                append(sampleRate.formatSampleRateLabel())
+            }
+        }
+
         Text(
-            text = when (label) {
-                PlayerQualityLabel.LOSSLESS -> stringResource(R.string.player_quality_lossless)
-                PlayerQualityLabel.HI_RES_LOSSLESS -> stringResource(R.string.player_quality_hires_lossless)
-                PlayerQualityLabel.ATMOS -> stringResource(R.string.player_quality_atmos)
-            },
+            text = qualityText,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = color,
