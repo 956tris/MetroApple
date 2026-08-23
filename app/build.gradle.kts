@@ -170,6 +170,10 @@ android {
     namespace = "com.metrolist.music"
     compileSdk = 36
 
+    // ndkVersion = "27.3.13750724"
+    // ndkPath = "C:/Users/grape/platform-tools/ndk/android-ndk-r27d"
+    // TODO from GraperPie: i have no clue why this issue happens, so here's a hacky fix to make the compiler shut the fuck up.
+
     defaultConfig {
         applicationId = applicationIdOverride ?: baseApplicationId
         minSdk = 26

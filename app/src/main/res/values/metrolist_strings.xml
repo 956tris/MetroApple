@@ -761,6 +761,9 @@
     <string name="tidal_quality_aac_320">AAC 320 kbps</string>
     <string name="tidal_quality_flac">FLAC / 16-bit</string>
     <string name="tidal_quality_hires">HiRes / 24-bit</string>
+    <string name="player_quality_atmos">Dolby Atmos</string>
+    <string name="player_quality_lossless">Lossless</string>
+    <string name="player_quality_hires_lossless">Hi-Res Lossless</string>
 
     <string name="scrobbling_configuration">Scrobbling configuration</string>
     <string name="scrobble_min_track_duration">Scrobble songs longer than (seconds)</string>

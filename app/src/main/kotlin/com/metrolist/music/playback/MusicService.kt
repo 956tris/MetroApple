@@ -192,6 +192,7 @@ import com.metrolist.music.constants.InstagramCookieKey
 import com.metrolist.music.constants.InstagramAppIdKey
 import com.metrolist.music.constants.InstagramUserAgentKey
 import com.metrolist.music.constants.InstagramUuidKey
+import com.metrolist.music.constants.PlayerLegacyQualityLabelKey
 import com.metrolist.music.constants.LivePlaybackBitrateKey
 import com.metrolist.music.constants.TidalAnimatedCoversEnabledKey
 import com.metrolist.music.constants.TidalAudioQuality
@@ -5087,7 +5088,8 @@ class MusicService :
     }
 
     private fun isLivePlaybackBitrateCollectionEnabled(): Boolean =
-        dataStore.get(LivePlaybackBitrateKey, false)
+        dataStore.get(LivePlaybackBitrateKey, false) &&
+                dataStore.get(PlayerLegacyQualityLabelKey, false)
 
     private fun isLivePlaybackBitrateActive(): Boolean =
         isScreenInteractiveForLiveBitrate &&
@@ -7056,7 +7058,11 @@ class MusicService :
 
     private fun observeLivePlaybackBitrateSetting() {
         dataStore.data
-            .map { it[LivePlaybackBitrateKey] ?: false }
+            .map {
+                val liveBitrateEnabled = it[LivePlaybackBitrateKey] ?: false
+                val legacyLabelEnabled = it[PlayerLegacyQualityLabelKey] ?: false
+                liveBitrateEnabled && legacyLabelEnabled
+            }
             .distinctUntilChanged()
             .collectLatest(scope) { enabled ->
                 if (enabled && isScreenInteractiveForLiveBitrate) {
