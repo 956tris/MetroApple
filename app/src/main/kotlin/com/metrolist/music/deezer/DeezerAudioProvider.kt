@@ -15,6 +15,8 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import com.metrolist.music.constants.DeezerAudioQuality
 import com.metrolist.music.constants.DeezerProxyMode
+import okhttp3.Cookie
+import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -68,6 +70,9 @@ object DeezerAudioProvider {
     private const val DEFAULT_PROXY_PORT = 3128
     private const val DEFAULT_MEDIA_PROXY_PATH = "/deezer-media-proxy"
     private const val DEFAULT_API_PROXY_PATH = "/deezer-api-proxy"
+    private const val GW_LIGHT_URL = "https://www.deezer.com/ajax/gw-light.php"
+    private const val GET_URL_URL = "https://media.deezer.com/v1/get_url"
+    private const val ACCOUNT_SESSION_TTL_MS = 30 * 60 * 1000L
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     private val AMAZON_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'", Locale.US)
 
@@ -82,6 +87,8 @@ object DeezerAudioProvider {
         val quality: DeezerAudioQuality,
         val fastMode: Boolean = false,
         val proxyUrl: String = DEFAULT_PROXY_URL,
+        val cookie: String = "",
+        val useAccount: Boolean = true,
     )
 
     data class Resolved(
@@ -128,6 +135,44 @@ object DeezerAudioProvider {
         val key: String = "$host:$port"
     }
 
+    private data class AccountSession(
+        val apiToken: String,
+        val licenseToken: String,
+        val cookie: String,
+        val client: OkHttpClient,
+        val expiresAtMs: Long,
+    )
+
+    private class DeezerAccountCookieJar(initialCookieHeader: String) : CookieJar {
+        private val jarCookies = ConcurrentHashMap<String, String>()
+
+        init {
+            initialCookieHeader.split(';').forEach { pair ->
+                val trimmed = pair.trim()
+                if (trimmed.isEmpty()) return@forEach
+                val separatorIndex = trimmed.indexOf('=')
+                if (separatorIndex <= 0) return@forEach
+                val name = trimmed.substring(0, separatorIndex).trim()
+                val value = trimmed.substring(separatorIndex + 1).trim()
+                if (name.isNotEmpty()) jarCookies[name] = value
+            }
+        }
+
+        override fun saveFromResponse(
+            url: HttpUrl,
+            cookies: List<Cookie>,
+        ) {
+            cookies.forEach { jarCookies[it.name] = it.value }
+        }
+
+        override fun loadForRequest(url: HttpUrl): List<Cookie> =
+            jarCookies.map { (name, value) ->
+                Cookie.Builder().name(name).value(value).domain(url.host).build()
+            }
+
+        fun headerValue(): String = jarCookies.entries.joinToString("; ") { (name, value) -> "$name=$value" }
+    }
+
     private val client =
         OkHttpClient
             .Builder()
@@ -146,6 +191,7 @@ object DeezerAudioProvider {
     private val trackCache = ConcurrentHashMap<String, MatchedTrack>()
     private val streamCache = ConcurrentHashMap<String, Resolved>()
     private val proxiedClients = ConcurrentHashMap<String, OkHttpClient>()
+    private val accountSessions = ConcurrentHashMap<String, AccountSession>()
     private val resolverPermits = Semaphore(RESOLVER_MAX_IN_FLIGHT, true)
     private val lastResolverRequestAtMs = AtomicLong(0L)
 
@@ -182,6 +228,27 @@ object DeezerAudioProvider {
         streamCache[batchCacheKey]
             ?.takeIf { it.expiresAtMs > now + 20_000L }
             ?.let { return it }
+
+        if (query.useAccount && query.cookie.isNotBlank()) {
+            val accountCacheKey = "acct::$batchCacheKey"
+            streamCache[accountCacheKey]
+                ?.takeIf { it.expiresAtMs > now + 20_000L }
+                ?.let { return it }
+            val accountAttempt = requestAccountStream(
+                cookie = query.cookie,
+                mediaId = query.mediaId,
+                trackId = track.trackId,
+                preferredQuality = query.quality,
+                qualities = qualities,
+                durationMs = query.durationMs ?: track.durationMs,
+                proxyUrl = proxyUrl,
+            )
+            accountAttempt.resolved?.let { resolved ->
+                streamCache[accountCacheKey] = resolved
+                return resolved
+            }
+            accountAttempt.error?.takeIf { it.isNotBlank() }?.let { Timber.tag("DeezerAudioProvider").w(it) }
+        }
 
         val batchAttempt = requestResolverStream(
             resolverUrl = resolverUrl,
@@ -684,51 +751,15 @@ object DeezerAudioProvider {
                     if (!response.isSuccessful) {
                         return@use StreamAttempt(error = "Deezer resolver HTTP ${response.code}: ${payload.take(160)}")
                     }
-                    val root = JSONObject(payload)
-                    val media = root.optJSONArray("data")
-                        ?.optJSONObject(0)
-                        ?.optJSONArray("media")
-                        ?.selectMedia(preferredQuality)
-                        ?: return@use StreamAttempt(error = "Deezer resolver returned no media for $trackId")
-                    val source = media.optJSONArray("sources")
-                        ?.let { sources ->
-                            sources.optJSONObject(1) ?: sources.optJSONObject(0)
-                        }
-                        ?: return@use StreamAttempt(error = "Deezer resolver returned no source for $trackId")
-                    val streamUrl = source.stringOrNull("url")
-                        ?: return@use StreamAttempt(error = "Deezer resolver returned an empty stream URL for $trackId")
-                    val cipherType = media.optJSONObject("cipher")?.stringOrNull("type")
-                    if (!cipherType.equals("BF_CBC_STRIPE", ignoreCase = true)) {
-                        return@use StreamAttempt(error = "Deezer stream used unsupported cipher ${cipherType ?: "none"}")
-                    }
-
-                    val resolvedQuality = deezerQualityFromFormatId(media.stringOrNull("format"))
-                        ?: preferredQuality
-                    val contentLength = media.longOrNull("filesize")
-                    val bitrate = resolvedQuality.estimatedBitrate(contentLength, durationMs)
-                    val expiresAtMs = media.longOrNull("exp")
-                        ?.times(1000L)
-                        ?.minus(30_000L)
-                        ?.coerceAtLeast(System.currentTimeMillis() + 60_000L)
-                        ?: extractExpiryMs(streamUrl)
-                    val resolved = Resolved(
-                        mediaUri = DeezerAudioDataSource.buildUri(
-                            mediaId = mediaId,
-                            mediaUrl = streamUrl,
-                            trackId = trackId,
-                            contentLength = contentLength,
-                            proxyUrl = proxyUrl,
-                        ),
+                    parseMediaEnvelope(
+                        payload = payload,
+                        mediaId = mediaId,
                         trackId = trackId,
-                        label = "Deezer ${resolvedQuality.label}",
-                        mimeType = resolvedQuality.mimeType,
-                        codecs = resolvedQuality.codecs,
-                        bitrate = bitrate,
-                        sampleRate = 44_100,
-                        contentLength = contentLength,
-                        expiresAtMs = expiresAtMs,
+                        preferredQuality = preferredQuality,
+                        durationMs = durationMs,
+                        proxyUrl = proxyUrl,
+                        sourceLabel = "Deezer resolver",
                     )
-                    StreamAttempt(resolved = resolved)
                 }
             } finally {
                 resolverPermits.release()
@@ -738,6 +769,219 @@ object DeezerAudioProvider {
                 Thread.currentThread().interrupt()
             }
             StreamAttempt(error = "Deezer resolver failed: ${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Parses a Deezer `get_url`-shaped media envelope (`{"data":[{"media":[...]}]}`) into a
+     * [StreamAttempt]. Shared by the resolver-proxied path and the direct account path, since
+     * both ultimately surface the same response shape from Deezer's media gateway.
+     */
+    private fun parseMediaEnvelope(
+        payload: String,
+        mediaId: String,
+        trackId: String,
+        preferredQuality: DeezerAudioQuality,
+        durationMs: Long?,
+        proxyUrl: String,
+        sourceLabel: String,
+    ): StreamAttempt {
+        val root = JSONObject(payload)
+        val media = root.optJSONArray("data")
+            ?.optJSONObject(0)
+            ?.optJSONArray("media")
+            ?.selectMedia(preferredQuality)
+            ?: return StreamAttempt(error = "$sourceLabel returned no media for $trackId")
+        val source = media.optJSONArray("sources")
+            ?.let { sources ->
+                sources.optJSONObject(1) ?: sources.optJSONObject(0)
+            }
+            ?: return StreamAttempt(error = "$sourceLabel returned no source for $trackId")
+        val streamUrl = source.stringOrNull("url")
+            ?: return StreamAttempt(error = "$sourceLabel returned an empty stream URL for $trackId")
+        val cipherType = media.optJSONObject("cipher")?.stringOrNull("type")
+        if (!cipherType.equals("BF_CBC_STRIPE", ignoreCase = true)) {
+            return StreamAttempt(error = "Deezer stream used unsupported cipher ${cipherType ?: "none"}")
+        }
+
+        val resolvedQuality = deezerQualityFromFormatId(media.stringOrNull("format"))
+            ?: preferredQuality
+        val contentLength = media.longOrNull("filesize")
+        val bitrate = resolvedQuality.estimatedBitrate(contentLength, durationMs)
+        val expiresAtMs = media.longOrNull("exp")
+            ?.times(1000L)
+            ?.minus(30_000L)
+            ?.coerceAtLeast(System.currentTimeMillis() + 60_000L)
+            ?: extractExpiryMs(streamUrl)
+        val resolved = Resolved(
+            mediaUri = DeezerAudioDataSource.buildUri(
+                mediaId = mediaId,
+                mediaUrl = streamUrl,
+                trackId = trackId,
+                contentLength = contentLength,
+                proxyUrl = proxyUrl,
+            ),
+            trackId = trackId,
+            label = "Deezer ${resolvedQuality.label}",
+            mimeType = resolvedQuality.mimeType,
+            codecs = resolvedQuality.codecs,
+            bitrate = bitrate,
+            sampleRate = 44_100,
+            contentLength = contentLength,
+            expiresAtMs = expiresAtMs,
+        )
+        return StreamAttempt(resolved = resolved)
+    }
+
+    /**
+     * Bootstraps (or reuses) a Deezer web-session for the given `arl` cookie: exchanges it for
+     * an `api_token` + `license_token` via `deezer.getUserData`, backed by a cookie jar that
+     * accumulates any `sid`/session cookies Deezer sets along the way so they get replayed to
+     * both gw-light and the media CDN — mirroring the per-ARL cookie jar dzmedia uses server-side.
+     */
+    private fun accountSession(cookie: String): AccountSession? {
+        val trimmedCookie = cookie.trim()
+        if (trimmedCookie.isBlank()) return null
+        val cacheKey = trimmedCookie.hashCode().toString()
+        val now = System.currentTimeMillis()
+        accountSessions[cacheKey]?.takeIf { it.expiresAtMs > now }?.let { return it }
+
+        val jar = DeezerAccountCookieJar(trimmedCookie)
+        val sessionClient = client.newBuilder().cookieJar(jar).build()
+        val userDataUrl = GW_LIGHT_URL.toHttpUrl().newBuilder()
+            .addQueryParameter("method", "deezer.getUserData")
+            .addQueryParameter("input", "3")
+            .addQueryParameter("api_version", "1.0")
+            .addQueryParameter("api_token", "")
+            .build()
+        val request = Request.Builder()
+            .url(userDataUrl)
+            .post("".toRequestBody(JSON_MEDIA_TYPE))
+            .header("Accept", "application/json")
+            .header("User-Agent", BROWSER_USER_AGENT)
+            .header("Cookie", jar.headerValue())
+            .build()
+
+        return runCatching {
+            sessionClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val payload = response.body.string().takeIf { it.isNotBlank() } ?: return@use null
+                val results = JSONObject(payload).optJSONObject("results") ?: return@use null
+                val apiToken = results.stringOrNull("checkForm") ?: return@use null
+                val userObject = results.optJSONObject("USER")
+                val userId = userObject?.let { if (it.has("USER_ID")) it.optLong("USER_ID") else 0L } ?: 0L
+                if (userId <= 0L) return@use null
+                val licenseToken = userObject.optJSONObject("OPTIONS")?.stringOrNull("license_token").orEmpty()
+                AccountSession(
+                    apiToken = apiToken,
+                    licenseToken = licenseToken,
+                    cookie = jar.headerValue(),
+                    client = sessionClient,
+                    expiresAtMs = now + ACCOUNT_SESSION_TTL_MS,
+                )
+            }
+        }.getOrNull()?.also { accountSessions[cacheKey] = it }
+    }
+
+    private fun fetchAccountTrackToken(
+        session: AccountSession,
+        trackId: String,
+    ): String? {
+        val url = GW_LIGHT_URL.toHttpUrl().newBuilder()
+            .addQueryParameter("method", "song.getListData")
+            .addQueryParameter("input", "3")
+            .addQueryParameter("api_version", "1.0")
+            .addQueryParameter("api_token", session.apiToken)
+            .build()
+        val body = JSONObject().put("sng_ids", JSONArray().put(trackId.toLongOrNull() ?: trackId))
+        val request = Request.Builder()
+            .url(url)
+            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .header("Accept", "application/json")
+            .header("User-Agent", BROWSER_USER_AGENT)
+            .header("Cookie", session.cookie)
+            .build()
+        return runCatching {
+            session.client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val payload = response.body.string().takeIf { it.isNotBlank() } ?: return@use null
+                JSONObject(payload)
+                    .optJSONObject("results")
+                    ?.optJSONArray("data")
+                    ?.optJSONObject(0)
+                    ?.stringOrNull("TRACK_TOKEN")
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * Direct-to-Deezer path: fetches a track token from the user's own session, then calls
+     * Deezer's media gateway directly with it — bypassing dzmedia entirely. Decryption is
+     * unchanged: this returns the same BF_CBC_STRIPE-ciphered CDN URL shape the resolver path
+     * does, so it flows through the existing [DeezerAudioDataSource] decryptor untouched.
+     */
+    private fun requestAccountStream(
+        cookie: String,
+        mediaId: String,
+        trackId: String,
+        preferredQuality: DeezerAudioQuality,
+        qualities: List<DeezerAudioQuality>,
+        durationMs: Long?,
+        proxyUrl: String,
+    ): StreamAttempt {
+        val session = accountSession(cookie)
+            ?: return StreamAttempt(error = "Deezer account session unavailable (check login)")
+        val trackToken = fetchAccountTrackToken(session, trackId)
+            ?: return StreamAttempt(error = "Deezer account session could not fetch track token for $trackId")
+
+        val bodyJson = JSONObject()
+            .put("track_tokens", JSONArray().put(trackToken))
+            .put("license_token", session.licenseToken)
+            .put(
+                "media",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "FULL")
+                        .put(
+                            "formats",
+                            JSONArray().also { formats ->
+                                qualities.distinct().forEach { quality ->
+                                    formats.put(
+                                        JSONObject()
+                                            .put("cipher", "BF_CBC_STRIPE")
+                                            .put("format", quality.formatId),
+                                    )
+                                }
+                            },
+                        ),
+                ),
+            )
+        val request = Request.Builder()
+            .url(GET_URL_URL)
+            .post(bodyJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .header("Accept", "application/json")
+            .header("User-Agent", BROWSER_USER_AGENT)
+            .header("Cookie", session.cookie)
+            .build()
+
+        return runCatching {
+            session.client.newCall(request).execute().use { response ->
+                val payload = response.body.string()
+                if (!response.isSuccessful) {
+                    return@use StreamAttempt(error = "Deezer account media HTTP ${response.code}: ${payload.take(160)}")
+                }
+                parseMediaEnvelope(
+                    payload = payload,
+                    mediaId = mediaId,
+                    trackId = trackId,
+                    preferredQuality = preferredQuality,
+                    durationMs = durationMs,
+                    proxyUrl = proxyUrl,
+                    sourceLabel = "Deezer account session",
+                )
+            }
+        }.getOrElse { error ->
+            StreamAttempt(error = "Deezer account stream failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 

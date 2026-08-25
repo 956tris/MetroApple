@@ -84,9 +84,9 @@
     <string name="experimental_galaxy_blur_mirrored_colors_desc">Tint Galaxy blur from multiple album or canvas colors while keeping the background dark enough for lyrics and controls.</string>
     <string name="experimental_smooth_inline_lyrics">Smooth under-album lyric line</string>
     <string name="experimental_smooth_inline_lyrics_desc">Shows only the current under-album lyric, wrapping up to three lines with a timed glow.</string>
-    <string name="experimental_apple_music_lyrics">Spicy Lyrics main lyrics</string>
-    <string name="experimental_apple_music_lyrics_desc">Replaces the main lyrics renderer with Spicy Lyrics-style word motion, glow, blur, and musical gap dots.</string>
-    <string name="experimental_apple_music_lyrics_size">Spicy Lyrics size</string>
+    <string name="experimental_apple_music_lyrics">MetroFuse Lyrics</string>
+    <string name="experimental_apple_music_lyrics_desc">Replaces the main lyrics renderer with MetroFuse\'s built-in word motion, glow, blur, and musical gap dots.</string>
+    <string name="experimental_apple_music_lyrics_size">MetroFuse Lyrics size</string>
     <string name="experimental_apple_music_lyrics_size_value">%1$d sp</string>
     <string name="live_wallpaper">Live wallpaper</string>
     <string name="live_wallpaper_desc">Set the current Apple Music Canvas as your system wallpaper. Requires the Live Wallpaper service to be enabled in Android settings.</string>
@@ -647,6 +647,8 @@
     <string name="deezer_quality_mp3_128">MP3 128 kbps</string>
     <string name="deezer_fast_mode">Fast Deezer loading</string>
     <string name="deezer_fast_mode_desc">Batch quality fallbacks and skip slower backup lookups for quicker Deezer starts.</string>
+    <string name="deezer_use_account">Stream from your account</string>
+    <string name="deezer_use_account_desc">When logged in, stream directly from Deezer using your own session instead of the shared resolver. Falls back automatically if it fails. 128 kbps still works without logging in.</string>
     <string name="deezer_reset_resolver">Reset Deezer resolver</string>
     <string name="deezer_integration_info">The resolver only finds the encrypted Deezer media URL. MetroFuse decrypts the stream locally during playback or downloads, and keeps public search and artwork requests off your Deezer session.</string>
     <string name="deezer_web_login">Deezer Web login</string>

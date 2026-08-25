@@ -138,6 +138,7 @@ import com.metrolist.music.constants.CrossfadeGaplessKey
 import com.metrolist.music.constants.DeezerAudioQuality
 import com.metrolist.music.constants.DeezerAudioQualityKey
 import com.metrolist.music.constants.DeezerCookieKey
+import com.metrolist.music.constants.DeezerUseAccountKey
 import com.metrolist.music.constants.DeezerFastModeKey
 import com.metrolist.music.constants.DeezerProxyModeKey
 import com.metrolist.music.constants.DeezerProxyUrlKey
@@ -4803,6 +4804,8 @@ class MusicService :
             "deezerResolver=${deezerResolverUrl.hashCode()}",
             "deezerQuality=${deezerQuality.name}",
             "deezerProxy=${DeezerAudioProvider.normalizeProxyUrl(deezerProxyUrl).hashCode()}",
+            "deezerUseAccount=${dataStore.get(DeezerUseAccountKey, true)}",
+            "deezerCookie=${dataStore.get(DeezerCookieKey, "").hashCode()}",
             "stopOnProviderError=$stopOnProviderError",
             "providerOrder=${audioProviderOrder.joinToString(",") { it.name }}",
             "providerOverrides=${providerMatchOverrides.hashCode()}",
@@ -5909,6 +5912,8 @@ class MusicService :
         proxyUrl: String = DeezerAudioProvider.DEFAULT_PROXY_URL,
         isrcOverride: String? = null,
     ): DeezerAudioProvider.Query {
+        val deezerCookie = dataStore.get(DeezerCookieKey, "")
+        val deezerUseAccount = dataStore.get(DeezerUseAccountKey, true)
         val queuedMetadata = metadataOverride ?: if (song == null) currentQueueMetadata(mediaId) else null
         val title = song?.song?.title ?: queuedMetadata?.title ?: mediaId
         val artists = song?.orderedArtists?.map { it.name }
@@ -5934,6 +5939,8 @@ class MusicService :
             quality = quality,
             fastMode = fastMode,
             proxyUrl = proxyUrl,
+            cookie = deezerCookie,
+            useAccount = deezerUseAccount,
         )
     }
 

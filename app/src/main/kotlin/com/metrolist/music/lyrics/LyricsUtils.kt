@@ -821,7 +821,15 @@ object LyricsUtils {
             }
         }
 
-        if (!hasWordTimings && active.size > 1) {
+        // Only one main (non-background) line should ever be active at once.
+        // Background/adlib lines are intentionally allowed to co-exist with their
+        // paired main line (handled separately by the caller), but two main lines
+        // must never both be active - renderers like SpicyWordLevelLyrics assume a
+        // single active line and will double-render if this invariant is violated.
+        // This used to be skipped when hasWordTimings was true, which let two
+        // word-synced main lines with slightly overlapping timing windows both be
+        // marked active at once - causing duplicate/overlapping line rendering.
+        if (active.size > 1) {
             val mainActive = active.filter { lines[it].isBackground == false }
             if (mainActive.size > 1) {
                 val maxTime = mainActive.maxOf { lines[it].time }

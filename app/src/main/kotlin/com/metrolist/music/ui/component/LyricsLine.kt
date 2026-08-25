@@ -1173,15 +1173,13 @@ private fun SpicyLyricsLine(
         label = "spicyLyricsAlpha",
     )
 
-    val blurAmount by animateFloatAsState(
-        targetValue = if (isActiveLine || item.isBackground || distanceFromCurrent == Int.MAX_VALUE) {
-            0f
-        } else {
-            (1.25f * distanceFromCurrent).coerceAtMost(6.83125f)
-        },
-        animationSpec = tween(durationMillis = 250),
-        label = "spicyLyricsBlur",
-    )
+    // Disabled: this was rendered via a separate android.graphics.Canvas.nativeCanvas.drawText
+    // glow pass followed by a Compose drawText(layoutResult) pass for the same line. Native
+    // Canvas text and Compose's Skia-based drawText shape/kern glyphs differently, so the two
+    // passes didn't align pixel-for-pixel - producing a visible duplicated/ghosted line on every
+    // inactive (non-current) line. Forcing this to 0 skips both the nativeCanvas glow draw below
+    // and the Shadow-blur fallback, removing the duplication and the blur.
+    val blurAmount = 0f
 
     val romanizedTextState by item.romanizedTextFlow.collectAsStateWithLifecycle()
     val isRomanizedAvailable = romanizedTextState != null
@@ -1564,14 +1562,36 @@ private fun SpicyWordLevelLyrics(
             )
         }
 
-        val letterLayouts = remember(mainText, lyricStyle) {
-            graphemeClusters.map { cluster -> textMeasurer.measure(cluster, lyricStyle) }
-        }
-
         val isRtlText = remember(mainText) { mainText.containsRtl() }
-        val spicyClock = remember(mainText, words) { SpicyAnimationClock() }
-        val spicySprings = remember(mainText, words, clusterCount) {
-            List(clusterCount) { SpicyClusterSprings() }
+
+        // Hoisted out of the per-frame Canvas draw scope: this only depends on the text
+        // layout and word mapping, never on smoothPosition, so it must not be rebuilt on
+        // every frame. Previously it was recomputed (new HashMap + a full pass over every
+        // grapheme cluster) inside the Canvas draw block, which runs on every frame while
+        // a line is active - real per-frame cost that got worse the more words a line has.
+        // On fast/dense lines (rapping) that extra work was enough to drop frames right when
+        // a word's wipe window was only a couple of frames long, making the wipe appear to
+        // skip straight to fully-sung instead of visibly sliding.
+        val wordBounds = remember(layoutResult, mainText, words, isBackground) {
+            val (boundsWordIdxMap, _, _) = charToWordData
+            val map = HashMap<Int, androidx.compose.ui.geometry.Rect>()
+            for (i in 0 until clusterCount) {
+                val wordIdx = boundsWordIdxMap[i]
+                if (wordIdx < 0) continue
+                val b = layoutResult.getBoundingBox(clusterCharOffsets[i])
+                val existing = map[wordIdx]
+                map[wordIdx] = if (existing == null) {
+                    b
+                } else {
+                    androidx.compose.ui.geometry.Rect(
+                        left = minOf(existing.left, b.left),
+                        top = minOf(existing.top, b.top),
+                        right = maxOf(existing.right, b.right),
+                        bottom = maxOf(existing.bottom, b.bottom),
+                    )
+                }
+            }
+            map
         }
 
         Canvas(
@@ -1598,170 +1618,62 @@ private fun SpicyWordLevelLyrics(
                 return@Canvas
             }
 
-            val (wordIdxMap, charInWordMap, wordLenMap) = charToWordData
-            val deltaSeconds = spicyClock.step()
-            val lineTotalPushes = FloatArray(layoutResult.lineCount)
-            val clusterVisuals = Array(clusterCount) { index ->
-                val wordIdx = wordIdxMap[index]
-                if (wordIdx < 0) {
-                    SpicyClusterVisual()
-                } else {
-                    val word = words[wordIdx]
-                    val startMs = (word.startTime * 1000.0).toLong()
-                    val endMs = (word.endTime * 1000.0).toLong()
-                    val durationMs = (endMs - startMs).coerceAtLeast(1L)
-                    val wordProgress = ((smoothPosition - startMs).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-                    val isSung = smoothPosition >= endMs
-                    val isActiveWord = smoothPosition in startMs..endMs
-                    val useLetterRange =
-                        durationMs >= 1000L &&
-                            !word.text.contains('-')
-                    val wordClusterCount = wordLenMap[index].coerceAtLeast(1)
-                    val charIndexInWord = charInWordMap[index].coerceIn(0, wordClusterCount - 1)
+            // Base pass: everything stays fully dim until the glide reaches it.
+            // There is only ONE brightening pass — the per-word wipe below. No separate
+            // "on active line" pre-brighten: that produced a second, distinct brightening
+            // stage on top of the glide, which is not the desired single-glide look.
+            drawText(layoutResult, color = inactiveColor)
 
-                    if (useLetterRange) {
-                        val activeLetterIndex = (wordProgress * wordClusterCount).toInt().coerceIn(0, wordClusterCount - 1)
-                        val activeLetterProgress = (wordProgress * wordClusterCount - activeLetterIndex).coerceIn(0f, 1f)
-                        val letterStateProgress = when {
-                            isSung || charIndexInWord < activeLetterIndex -> 1f
-                            isActiveWord && charIndexInWord == activeLetterIndex -> spicyEaseSinOut(activeLetterProgress)
-                            else -> 0f
-                        }
-                        val baseScale = SpicyLetterScaleSpline.at(activeLetterProgress)
-                        val baseYOffset = SpicyLetterYOffsetSpline.at(activeLetterProgress)
-                        val baseGlow = SpicyGlowSpline.at(activeLetterProgress)
-                        val restingScale = SpicyLetterScaleSpline.at(0f)
-                        val restingYOffset = SpicyLetterYOffsetSpline.at(0f)
-                        val restingGlow = SpicyGlowSpline.at(0f)
-                        val distance = abs(charIndexInWord - activeLetterIndex).toFloat()
-                        val falloff = (1f / (1f + distance.pow(2.8f))).coerceIn(0f, 1f)
-                        val glowFalloff = (1f / (1f + distance * 0.9f)).coerceIn(0f, 1f)
-                        val activeScale = restingScale + (baseScale - restingScale) * falloff
-                        val activeYOffset = restingYOffset + (baseYOffset - restingYOffset) * falloff
-                        val activeGlow = restingGlow + (baseGlow - restingGlow) * glowFalloff
-                        val springValues = spicySprings[index].step(
-                            targetScale = if (isSung) 1f else activeScale,
-                            targetYOffset = if (isSung) 0f else activeYOffset,
-                            targetGlow = if (isActiveWord) activeGlow else 0f,
-                            deltaSeconds = deltaSeconds,
-                        )
+            // Wipe pass: sung words draw solid and stay solid (the "after" state); the
+            // in-progress word gets a soft-edged gradient mask sliding continuously with
+            // wordProgress, brightening from inactiveColor up to activeColor.
+            // CRITICAL: this uses Compose's drawText(layoutResult, brush=...) on the
+            // SAME TextLayoutResult as the base pass above — not android.graphics
+            // nativeCanvas.drawText, which uses a different text-shaping/kerning
+            // engine and produced ghosted/duplicated glyphs when overlaid on the
+            // Skia-shaped base text. Same layout object => pixel-identical glyph
+            // positions => no duplication, and the gradient is a real Brush so it's
+            // interpolated continuously by the GPU every frame, not stepped.
+            words.forEachIndexed { wordIdx, word ->
+                val bounds = wordBounds[wordIdx] ?: return@forEachIndexed
+                val startMs = (word.startTime * 1000.0).toLong()
+                val endMs = (word.endTime * 1000.0).toLong()
+                val isSung = smoothPosition >= endMs
+                val isFuture = smoothPosition < startMs
+                if (isFuture) return@forEachIndexed
 
-                        SpicyClusterVisual(
-                            charProgress = letterStateProgress,
-                            isSung = isSung || charIndexInWord < activeLetterIndex,
-                            isActiveWord = isActiveWord,
-                            letterEffect = true,
-                            scale = springValues.scale,
-                            yOffsetEm = springValues.yOffset * 2f,
-                            glow = springValues.glow,
-                        )
-                    } else {
-                        val animationProgress = when {
-                            isSung -> 1f
-                            isActiveWord -> wordProgress
-                            else -> 0f
-                        }
-                        val springValues = spicySprings[index].step(
-                            targetScale = if (isSung) 1f else SpicyWordScaleSpline.at(animationProgress),
-                            targetYOffset = if (isSung) 0f else SpicyWordYOffsetSpline.at(animationProgress),
-                            targetGlow = if (isActiveWord) SpicyGlowSpline.at(animationProgress) else 0f,
-                            deltaSeconds = deltaSeconds,
-                        )
-                        SpicyClusterVisual(
-                            charProgress = if (isActiveWord) {
-                                val characterStart = charIndexInWord.toFloat() / wordClusterCount.toFloat()
-                                ((wordProgress - characterStart) * wordClusterCount).coerceIn(0f, 1f)
-                            } else if (isSung) {
-                                1f
-                            } else {
-                                0f
-                            },
-                            isSung = isSung,
-                            isActiveWord = isActiveWord,
-                            letterEffect = false,
-                            scale = springValues.scale,
-                            yOffsetEm = springValues.yOffset,
-                            glow = springValues.glow,
-                        )
+                if (isSung) {
+                    clipRect(left = bounds.left, top = bounds.top, right = bounds.right, bottom = bounds.bottom) {
+                        drawText(layoutResult, color = activeColor)
                     }
+                    return@forEachIndexed
                 }
-            }
 
-            for (i in 0 until clusterCount) {
-                val charOffset = clusterCharOffsets[i]
-                val lineIdx = layoutResult.getLineForOffset(charOffset)
-                val bounds = layoutResult.getBoundingBox(charOffset)
-                lineTotalPushes[lineIdx] += bounds.width * (clusterVisuals[i].scale - 1f)
-            }
+                val durationMs = (endMs - startMs).coerceAtLeast(1L)
+                val progress = ((smoothPosition - startMs).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                val wipeX = bounds.left + bounds.width * progress
 
-            val lineCurrentPushes = FloatArray(layoutResult.lineCount)
-            for (i in 0 until clusterCount) {
-                val charOffset = clusterCharOffsets[i]
-                val lineIdx = layoutResult.getLineForOffset(charOffset)
-                val bounds = layoutResult.getBoundingBox(charOffset)
-                val visual = clusterVisuals[i]
-                val alignShift = when (alignment) {
-                    TextAlign.Center -> -lineTotalPushes[lineIdx] / 2f
-                    TextAlign.Right -> -lineTotalPushes[lineIdx]
-                    else -> 0f
+                // Edge width must scale with the WORD's own width, not a fixed pixel
+                // constant — a fixed edge wider than a short/single-word line's bounds
+                // meant the whole gradient transition zone sat outside the word from
+                // frame one, so the word read as snapping instantly to full brightness
+                // instead of visibly sliding across it like a per-letter wipe.
+                val edgeWidthPx = (bounds.width * 0.32f).coerceAtMost(lyricStyle.fontSize.toPx() * 0.75f)
+
+                val wipeBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                    colorStops = arrayOf(
+                        0f to activeColor,
+                        0.5f to activeColor,
+                        1f to inactiveColor,
+                    ),
+                    start = Offset(wipeX - edgeWidthPx, 0f),
+                    end = Offset(wipeX + edgeWidthPx * 0.2f, 0f),
+                    tileMode = androidx.compose.ui.graphics.TileMode.Clamp,
+                )
+
+                clipRect(left = bounds.left, top = bounds.top, right = bounds.right, bottom = bounds.bottom) {
+                    drawText(layoutResult, brush = wipeBrush)
                 }
-                val yOffsetPx = lyricStyle.fontSize.toPx() * visual.yOffsetEm
-
-                withTransform({
-                    translate(
-                        left = alignShift + lineCurrentPushes[lineIdx] + bounds.left,
-                        top = bounds.top + yOffsetPx,
-                    )
-                    scale(
-                        visual.scale,
-                        visual.scale,
-                        pivot = Offset(bounds.width / 2f, bounds.height * 0.82f),
-                    )
-                }) {
-                    val textGlow = visual.glow
-                    if (textGlow > 0.01f) {
-                        val glowAlpha = if (visual.letterEffect) {
-                            (textGlow * 1.85f).coerceIn(0f, 1f)
-                        } else {
-                            (textGlow * 0.35f).coerceIn(0f, 0.35f)
-                        }
-                        val glowRadius = if (visual.letterEffect) {
-                            4.dp.toPx() + 12.dp.toPx() * textGlow
-                        } else {
-                            4.dp.toPx() + 2.dp.toPx() * textGlow
-                        }
-                        drawIntoCanvas { canvas ->
-                            glowPaint.maskFilter = BlurMaskFilter(glowRadius, BlurMaskFilter.Blur.NORMAL)
-                            glowPaint.color = Color.White.copy(alpha = glowAlpha).toArgb()
-                            glowPaint.textSize = lyricStyle.fontSize.toPx()
-                            canvas.nativeCanvas.drawText(letterLayouts[i].layoutInput.text.text, 0f, letterLayouts[i].firstBaseline, glowPaint)
-                        }
-                    }
-
-                    val baseColor = if (visual.isSung) activeColor else inactiveColor
-                    drawText(letterLayouts[i], color = baseColor)
-
-                    if (visual.isActiveWord && visual.charProgress > 0f) {
-                        val filledWidth = bounds.width * visual.charProgress
-                        val edgeWidth = (bounds.width * 0.45f).coerceAtLeast(1f)
-                        val solidWidth = (filledWidth - edgeWidth).coerceAtLeast(0f)
-                        if (solidWidth > 0f) {
-                            clipRect(left = 0f, top = 0f, right = solidWidth, bottom = bounds.height) {
-                                drawText(letterLayouts[i], color = activeColor)
-                            }
-                        }
-                        for (step in 0 until 12) {
-                            val start = solidWidth + (step * edgeWidth / 12f)
-                            val end = (solidWidth + ((step + 1) * edgeWidth / 12f) + 0.5f).coerceAtMost(filledWidth)
-                            if (end > start) {
-                                clipRect(left = start, top = 0f, right = end, bottom = bounds.height) {
-                                    drawText(letterLayouts[i], color = activeColor.copy(alpha = 1f - (step + 0.5f) / 12f))
-                                }
-                            }
-                        }
-                    }
-                }
-                lineCurrentPushes[lineIdx] += bounds.width * (visual.scale - 1f)
             }
         }
     }

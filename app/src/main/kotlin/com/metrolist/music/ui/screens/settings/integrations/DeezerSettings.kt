@@ -38,6 +38,7 @@ import com.metrolist.music.constants.DeezerAudioQuality
 import com.metrolist.music.constants.DeezerAudioQualityKey
 import com.metrolist.music.constants.DeezerAudioQualityOptions
 import com.metrolist.music.constants.DeezerCookieKey
+import com.metrolist.music.constants.DeezerUseAccountKey
 import com.metrolist.music.constants.DeezerFastModeKey
 import com.metrolist.music.constants.DeezerProxyMode
 import com.metrolist.music.constants.DeezerProxyModeKey
@@ -66,6 +67,7 @@ fun DeezerSettings(
     var proxyModeValue by rememberPreference(DeezerProxyModeKey, "")
     var audioQuality by rememberEnumPreference(DeezerAudioQualityKey, DeezerAudioQuality.MP3_128)
     val (fastMode, onFastModeChange) = rememberPreference(DeezerFastModeKey, false)
+    val (useAccount, onUseAccountChange) = rememberPreference(DeezerUseAccountKey, true)
     var deezerCookie by rememberPreference(DeezerCookieKey, "")
     val cookieConfigured = isDeezerCookieConfigured(deezerCookie)
     val renderProxyUrl = DeezerAudioProvider.normalizeProxyUrl(DeezerAudioProvider.RENDER_PROXY_BASE_URL)
@@ -283,6 +285,27 @@ fun DeezerSettings(
                             )
                         },
                         onClick = { onFastModeChange(!fastMode) },
+                    ),
+                    Material3SettingsItem(
+                        title = { Text(stringResource(R.string.deezer_use_account)) },
+                        description = { Text(stringResource(R.string.deezer_use_account_desc)) },
+                        icon = painterResource(R.drawable.login),
+                        trailingContent = {
+                            Switch(
+                                checked = useAccount,
+                                onCheckedChange = onUseAccountChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (useAccount) R.drawable.check else R.drawable.close,
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                    )
+                                },
+                            )
+                        },
+                        onClick = { onUseAccountChange(!useAccount) },
                     ),
                     Material3SettingsItem(
                         title = { Text(stringResource(R.string.deezer_reset_resolver)) },
