@@ -660,6 +660,10 @@
     <string name="deezer_cookie_not_configured">No Deezer login configured</string>
     <string name="deezer_clear_cookie">Clear Deezer login</string>
     <string name="deezer_cookie_saved">Deezer login saved.</string>
+    <string name="deezer_login_notice_title">Log in to Deezer</string>
+    <string name="deezer_login_notice_subtitle">New in this update</string>
+    <string name="deezer_login_notice_body">MetroFuse can now stream straight from your own Deezer account. Logging in gives you the most reliable playback and cuts loading to near-instant, because tracks resolve directly from Deezer instead of passing through a shared server.</string>
+    <string name="deezer_login_notice_action">Log in to Deezer</string>
     <string name="instagram_integration">Instagram</string>
     <string name="instagram_web_login">Instagram Web login</string>
     <string name="instagram_web_login_desc">Log in with Instagram in the WebView. MetroFuse saves the session cookies used for Instagram Music audio lookup.</string>

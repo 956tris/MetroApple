@@ -1098,6 +1098,37 @@ private val SpicyOpacityEasing = CubicBezierEasing(0.61f, 1f, 0.88f, 1f)
 private fun spicyEaseSinOut(progress: Float): Float =
     ((1f - cos(PI.toFloat() * progress.coerceIn(0f, 1f))) / 2f).coerceIn(0f, 1f)
 
+/**
+ * Draws the laid-out text through [paint] one wrapped row at a time.
+ *
+ * android.graphics.Canvas.drawText does not soft-wrap, so handing it the whole
+ * string at [firstBaseline] stacks every row onto the top one — which showed up
+ * as a stray bright band across the first row of any lyric long enough to wrap.
+ * Row geometry is taken from the Compose layout, so the glow lands under the
+ * glyphs it belongs to and picks up the horizontal offset of centred text
+ * instead of being pinned to x = 0.
+ */
+private fun android.graphics.Canvas.drawTextRowsBlurred(
+    layoutResult: androidx.compose.ui.text.TextLayoutResult,
+    paint: android.graphics.Paint,
+) {
+    val text = layoutResult.layoutInput.text.text
+    // Baseline offset within a row, reused for every row: getLineBaseline() is not
+    // available on TextLayoutResult, and rows share a height here (single style).
+    val baselineWithinRow = layoutResult.firstBaseline - layoutResult.getLineTop(0)
+    for (row in 0 until layoutResult.lineCount) {
+        val start = layoutResult.getLineStart(row)
+        val end = layoutResult.getLineEnd(row, visibleEnd = true)
+        if (end <= start) continue
+        drawText(
+            text.substring(start, end),
+            layoutResult.getLineLeft(row),
+            layoutResult.getLineTop(row) + baselineWithinRow,
+            paint,
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SpicyLyricsLine(
@@ -1390,7 +1421,7 @@ private fun SpicyLineLevelLyrics(
                         glowPaint.maskFilter = BlurMaskFilter(lineBlurRadiusPx, BlurMaskFilter.Blur.NORMAL)
                         glowPaint.color = Color.White.copy(alpha = 0.35f).toArgb()
                         glowPaint.textSize = lyricStyle.fontSize.toPx()
-                        canvas.nativeCanvas.drawText(layoutResult.layoutInput.text.text, 0f, layoutResult.firstBaseline, glowPaint)
+                        canvas.nativeCanvas.drawTextRowsBlurred(layoutResult, glowPaint)
                     }
                 }
                 drawText(layoutResult, color = inactiveColor)
@@ -1410,7 +1441,7 @@ private fun SpicyLineLevelLyrics(
                     glowPaint.maskFilter = BlurMaskFilter(4.dp.toPx() + 13.dp.toPx() * glow, BlurMaskFilter.Blur.NORMAL)
                     glowPaint.color = activeColor.copy(alpha = (glow * 0.68f).coerceIn(0f, 0.68f)).toArgb()
                     glowPaint.textSize = lyricStyle.fontSize.toPx()
-                    canvas.nativeCanvas.drawText(layoutResult.layoutInput.text.text, 0f, layoutResult.firstBaseline, glowPaint)
+                    canvas.nativeCanvas.drawTextRowsBlurred(layoutResult, glowPaint)
                 }
             }
 
@@ -1611,7 +1642,7 @@ private fun SpicyWordLevelLyrics(
                         glowPaint.maskFilter = BlurMaskFilter(lineBlurRadiusPx, BlurMaskFilter.Blur.NORMAL)
                         glowPaint.color = Color.White.copy(alpha = 0.35f).toArgb()
                         glowPaint.textSize = lyricStyle.fontSize.toPx()
-                        canvas.nativeCanvas.drawText(layoutResult.layoutInput.text.text, 0f, layoutResult.firstBaseline, glowPaint)
+                        canvas.nativeCanvas.drawTextRowsBlurred(layoutResult, glowPaint)
                     }
                 }
                 drawText(layoutResult, color = if (isActiveLine) activeColor else inactiveColor)

@@ -557,6 +557,9 @@ val QueueEditLockKey = booleanPreferencesKey("queueEditLock")
 val ShowWrappedCardKey = booleanPreferencesKey("show_wrapped_card")
 val WrappedSeenKey = booleanPreferencesKey("wrapped_seen")
 val LastSeenVersionKey = stringPreferencesKey("lastSeenVersion")
+// Dismissed state for the one-time Deezer login notice. Deliberately its own boolean rather
+// than being keyed off LastSeenVersionKey, so a later version bump cannot resurrect it.
+val DeezerLoginNoticeDismissedKey = booleanPreferencesKey("deezerLoginNoticeDismissed")
 val HomeFeedSourceKey = stringPreferencesKey("homeFeedSource")
 
 enum class HomeFeedSource {

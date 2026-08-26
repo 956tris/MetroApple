@@ -140,6 +140,7 @@ import com.metrolist.music.constants.AppLanguageKey
 import com.metrolist.music.constants.CheckForUpdatesKey
 import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.DefaultOpenTabKey
+import com.metrolist.music.constants.DeezerLoginNoticeDismissedKey
 import com.metrolist.music.constants.DisableScreenshotKey
 import com.metrolist.music.constants.DynamicThemeKey
 import com.metrolist.music.constants.EnableHighRefreshRateKey
@@ -185,6 +186,7 @@ import com.metrolist.music.ui.component.AppNavigationBar
 import com.metrolist.music.ui.component.AppNavigationRail
 import com.metrolist.music.ui.component.BottomSheetMenu
 import com.metrolist.music.ui.component.BottomSheetPage
+import com.metrolist.music.ui.component.DeezerLoginNotice
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.rememberBottomSheetState
@@ -603,6 +605,7 @@ class MainActivity : ComponentActivity() {
         val selectedThemeColor = Color(selectedThemeColorInt)
 
         val showChangelog = rememberSaveable { mutableStateOf(false) }
+        val showDeezerLoginNotice = rememberSaveable { mutableStateOf(false) }
 
         var themeColor by rememberSaveable(stateSaver = ColorSaver) {
             mutableStateOf(selectedThemeColor)
@@ -692,6 +695,15 @@ class MainActivity : ComponentActivity() {
                     val currentVersion = BuildConfig.VERSION_NAME
                     if (lastSeenVersion != currentVersion) {
                         showChangelog.value = true
+                    }
+                }
+
+                // Starts hidden and is only revealed once the stored flag confirms it has not
+                // been dismissed, so an already-dismissed notice never flashes on startup while
+                // the preference is still loading.
+                LaunchedEffect(Unit) {
+                    if (dataStore.data.first()[DeezerLoginNoticeDismissedKey] != true) {
+                        showDeezerLoginNotice.value = true
                     }
                 }
 
@@ -1019,6 +1031,27 @@ class MainActivity : ComponentActivity() {
                 ) {
                     if (showChangelog.value) {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
+                    }
+
+                    // Gated on the changelog being closed: on the first launch after an update
+                    // both want the screen, and stacking two overlays hides one behind the other.
+                    if (!showChangelog.value && showDeezerLoginNotice.value) {
+                        val dismissDeezerLoginNotice = {
+                            showDeezerLoginNotice.value = false
+                            coroutineScope.launch(Dispatchers.IO) {
+                                dataStore.edit { settings ->
+                                    settings[DeezerLoginNoticeDismissedKey] = true
+                                }
+                            }
+                            Unit
+                        }
+                        DeezerLoginNotice(
+                            onDismiss = dismissDeezerLoginNotice,
+                            onLogin = {
+                                dismissDeezerLoginNotice()
+                                navController.navigate("settings/integrations/deezer/login")
+                            },
+                        )
                     }
 
                     if (useGalaxyAppBackground) {
