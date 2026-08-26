@@ -50,6 +50,7 @@ import kotlin.math.roundToInt
 
 object DeezerAudioProvider {
     const val DEFAULT_RESOLVER_URL = "https://yesitworkssomehow-funny-deeza-api-and-yeah.hf.space/get_url"
+    const val DEFAULT_RESOLVER_URL_128 = "https://api-number-2-poopo.onrender.com/get_url"
     const val DEFAULT_PROXY_URL = ""
     const val RENDER_RESOLVER_URL = "https://dzmedia-metrofuse.onrender.com/get_url"
     const val RENDER_PROXY_BASE_URL = "https://dzmedia-metrofuse.onrender.com"
@@ -196,7 +197,11 @@ object DeezerAudioProvider {
     private val lastResolverRequestAtMs = AtomicLong(0L)
 
     fun resolve(query: Query): Resolved {
-        val resolverUrl = normalizeResolverUrl(query.resolverUrl)
+        val resolverUrl = if (query.quality == DeezerAudioQuality.MP3_128) {
+            normalizeResolverUrl(DEFAULT_RESOLVER_URL_128)
+        } else {
+            normalizeResolverUrl(query.resolverUrl)
+        }
         val proxyUrl = normalizeProxyUrl(query.proxyUrl)
         val directTrackId = query.mediaId.toDeezerTrackIdOrNull(allowPlainNumeric = false)
         if (query.fastMode) {
@@ -234,6 +239,7 @@ object DeezerAudioProvider {
             streamCache[accountCacheKey]
                 ?.takeIf { it.expiresAtMs > now + 20_000L }
                 ?.let { return it }
+            val accountStartMs = System.currentTimeMillis()
             val accountAttempt = requestAccountStream(
                 cookie = query.cookie,
                 mediaId = query.mediaId,
@@ -243,6 +249,10 @@ object DeezerAudioProvider {
                 durationMs = query.durationMs ?: track.durationMs,
                 proxyUrl = proxyUrl,
             )
+            val accountElapsedMs = System.currentTimeMillis() - accountStartMs
+            Timber.tag("DeezerLatency").d(
+                "account resolve for ${track.trackId}: ${accountElapsedMs}ms (${if (accountAttempt.resolved != null) "hit" else "miss"})",
+            )
             accountAttempt.resolved?.let { resolved ->
                 streamCache[accountCacheKey] = resolved
                 return resolved
@@ -250,6 +260,7 @@ object DeezerAudioProvider {
             accountAttempt.error?.takeIf { it.isNotBlank() }?.let { Timber.tag("DeezerAudioProvider").w(it) }
         }
 
+        val resolverStartMs = System.currentTimeMillis()
         val batchAttempt = requestResolverStream(
             resolverUrl = resolverUrl,
             mediaId = query.mediaId,
@@ -261,9 +272,15 @@ object DeezerAudioProvider {
             proxyUrl = proxyUrl,
         )
         batchAttempt.resolved?.let { resolved ->
+            Timber.tag("DeezerLatency").d(
+                "resolver resolve for ${track.trackId}: ${System.currentTimeMillis() - resolverStartMs}ms (hit)",
+            )
             streamCache[batchCacheKey] = resolved
             return resolved
         }
+        Timber.tag("DeezerLatency").d(
+            "resolver resolve for ${track.trackId}: ${System.currentTimeMillis() - resolverStartMs}ms (miss)",
+        )
         batchAttempt.error?.takeIf { it.isNotBlank() }?.let(errors::add)
 
         if (!query.fastMode) {
@@ -929,10 +946,22 @@ object DeezerAudioProvider {
         durationMs: Long?,
         proxyUrl: String,
     ): StreamAttempt {
-        val session = accountSession(cookie)
-            ?: return StreamAttempt(error = "Deezer account session unavailable (check login)")
-        val trackToken = fetchAccountTrackToken(session, trackId)
-            ?: return StreamAttempt(error = "Deezer account session could not fetch track token for $trackId")
+        val session = run {
+            val startMs = System.currentTimeMillis()
+            val result = accountSession(cookie)
+            Timber.tag("DeezerLatency").d(
+                "  accountSession() for $trackId: ${System.currentTimeMillis() - startMs}ms (${if (result != null) "cached/ok" else "failed"})",
+            )
+            result
+        } ?: return StreamAttempt(error = "Deezer account session unavailable (check login)")
+        val trackToken = run {
+            val startMs = System.currentTimeMillis()
+            val result = fetchAccountTrackToken(session, trackId)
+            Timber.tag("DeezerLatency").d(
+                "  fetchAccountTrackToken() for $trackId: ${System.currentTimeMillis() - startMs}ms (${if (result != null) "ok" else "failed"})",
+            )
+            result
+        } ?: return StreamAttempt(error = "Deezer account session could not fetch track token for $trackId")
 
         val bodyJson = JSONObject()
             .put("track_tokens", JSONArray().put(trackToken))
@@ -965,8 +994,12 @@ object DeezerAudioProvider {
             .build()
 
         return runCatching {
+            val getUrlStartMs = System.currentTimeMillis()
             session.client.newCall(request).execute().use { response ->
                 val payload = response.body.string()
+                Timber.tag("DeezerLatency").d(
+                    "  get_url() for $trackId: ${System.currentTimeMillis() - getUrlStartMs}ms (HTTP ${response.code})",
+                )
                 if (!response.isSuccessful) {
                     return@use StreamAttempt(error = "Deezer account media HTTP ${response.code}: ${payload.take(160)}")
                 }
