@@ -40,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import android.net.Uri
+import com.chaquo.python.Python
 
 object YouTubeAudioProvider {
     const val STREAM_MARKER_QUERY = "_metrolist_youtube"
@@ -127,49 +128,72 @@ object YouTubeAudioProvider {
             ?.takeIf { it.expiresAtMs > now + 30_000L }
             ?.let { return it }
 
-        // Fire both innertube and extractor concurrently — first valid result
-        // wins, the loser is cancelled. This eliminates the sequential fallback
-        // latency when the primary path is slow or fails.
-        var innertubeFailure: Throwable? = null
-        var extractorFailure: Throwable? = null
-
-        val result = coroutineScope {
-            val channel = Channel<Resolved>(2)
-
-            val innertubeJob = launch {
-                try {
-                    resolveWithInnertubeFallback(videoId, now).let { channel.send(it) }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    innertubeFailure = e
-                }
-            }
-            val extractorJob = launch {
-                try {
-                    resolveWithExtractor(videoId, now).let { channel.send(it) }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    extractorFailure = e
-                }
-            }
-            launch {
-                innertubeJob.join()
-                extractorJob.join()
-                channel.close()
+        // yt-dlp (on-device via Chaquopy) is now the sole primary path. It
+        // uses the device's own IP, handles SABR internally, and its
+        // extractor is kept current independent of app releases via
+        // YtDlpUpdater. The innertube-client race and BravePipe/NewPipe
+        // extractor that used to live here have been fully retired — that
+        // was the whole point of this refactor: one resolution path instead
+        // of three that all needed independent maintenance against YouTube's
+        // churn.
+        var ytDlpFailure: Throwable? = null
+        runCatching { resolveWithYtDlpOnDevice(videoId, now) }
+            .onSuccess { return cache(videoId, it) }
+            .onFailure {
+                ytDlpFailure = it
+                Timber.tag(TAG).w(it, "yt-dlp resolution failed for $videoId, forcing an update and retrying once")
             }
 
-            val first = channel.receiveCatching().getOrNull()
-            innertubeJob.cancel()
-            extractorJob.cancel()
-            first
-        }
-
-        result?.let { return cache(videoId, it) }
+        // First failure this session: force a yt-dlp version check/upgrade
+        // (normally rate-limited to once per process) and retry immediately.
+        // Most yt-dlp failures on a given device are "YouTube shipped a
+        // breaking change and our bundled build-time version doesn't know
+        // about it yet" — this is the self-healing path for that.
+        runCatching {
+            YtDlpUpdater.updateIfNeeded(force = true)
+            resolveWithYtDlpOnDevice(videoId, now)
+        }.onSuccess { return cache(videoId, it) }
+            .onFailure { ytDlpFailure = it }
 
         throw YouTubeAudioResolutionException(
             "YouTube Music playback failed for $videoId: " +
-                    "innertube=${innertubeFailure?.readableMessage() ?: "no candidate produced a stream"}; " +
-                    "extractor=${extractorFailure?.readableMessage() ?: "no candidate produced a stream"}",
+                    "yt-dlp=${ytDlpFailure?.readableMessage() ?: "no candidate produced a stream"}",
+        )
+    }
+
+    /**
+     * Resolves a stream using yt-dlp running on-device via Chaquopy.
+     */
+    private suspend fun resolveWithYtDlpOnDevice(
+        videoId: String,
+        now: Long,
+    ): Resolved = withContext(Dispatchers.IO) {
+        val py = Python.getInstance()
+        val ytmResolver = py.getModule("ytm_resolver")
+        val resultJsonString = ytmResolver.callAttr("resolve", videoId).toString()
+
+        val json = org.json.JSONObject(resultJsonString)
+        if (json.has("error")) {
+            throw YouTubeAudioResolutionException("yt-dlp failed: ${json.getString("error")}")
+        }
+
+        val streamUrl = json.getString("url")
+        val workingClient = json.optString("working_client", "unknown")
+
+        Resolved(
+            mediaUri = addStreamMarker(streamUrl, "ytdlp"),
+            videoId = videoId,
+            clientKey = "ytdlp:$workingClient",
+            itag = json.optInt("itag", 251),
+            mimeType = json.optString("mime", "audio/webm"),
+            codecs = json.optString("acodec", "opus"),
+            bitrate = (json.optDouble("bitrate", 0.0) * 1000).toInt(),
+            sampleRate = null,
+            contentLength = null,
+            loudnessDb = null,
+            perceptualLoudnessDb = null,
+            // yt-dlp URLs usually last a while
+            expiresAtMs = now + 60 * 60 * 1000L,
         )
     }
 

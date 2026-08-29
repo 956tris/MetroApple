@@ -89,6 +89,7 @@ enum class SliderStyle {
     DEFAULT,
     WAVY,
     SLIM,
+    WAVEFORM,
 }
 
 const val SYSTEM_DEFAULT = "SYSTEM_DEFAULT"
@@ -123,6 +124,7 @@ val LastUpdateCheckTimeKey = longPreferencesKey("lastUpdateCheckTime")
 
 val AppleAudioQualityKey = stringPreferencesKey("appleAudioQuality")
 val StopOnProviderErrorKey = booleanPreferencesKey("stopOnProviderError")
+val YtDlpLastManualUpdateAtKey = longPreferencesKey("ytDlpLastManualUpdateAt")
 val AudioProviderOrderKey = stringPreferencesKey("audioProviderOrder")
 val AudioProviderMatchOverridesKey = stringPreferencesKey("audioProviderMatchOverrides")
 

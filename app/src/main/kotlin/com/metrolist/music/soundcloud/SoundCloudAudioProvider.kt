@@ -76,6 +76,11 @@ object SoundCloudAudioProvider {
         val durationMs: Long?,
     )
 
+    /** Amplitude envelope for the "waveform" player slider style. */
+    data class Waveform(
+        val samples: List<Float>,
+    )
+
     class SoundCloudResolutionException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
     private data class MatchedTrack(
@@ -88,6 +93,7 @@ object SoundCloudAudioProvider {
         val durationMs: Long?,
         val trackAuthorization: String?,
         val transcodings: JSONArray?,
+        val waveformUrl: String? = null,
     )
 
     private data class StreamCandidate(
@@ -107,6 +113,9 @@ object SoundCloudAudioProvider {
 
     private val streamCache = ConcurrentHashMap<String, Resolved>()
     private val trackCache = ConcurrentHashMap<String, MatchedTrack>()
+    // Waveforms never change for a given upload, so cache indefinitely (process lifetime) rather
+    // than on the short streamCache TTL — this is one cheap HTTP fetch, ever, per track.
+    private val waveformCache = ConcurrentHashMap<String, Waveform>()
 
     @Volatile
     private var cachedClientId: String? = null
@@ -132,28 +141,43 @@ object SoundCloudAudioProvider {
         var clientId = getClientId()
         if (clientId.isBlank()) throw SoundCloudResolutionException("Failed to scrape SoundCloud client ID. Cannot resolve audio.")
 
-        val track = trackCache[query.mediaId]
-            ?: run {
-                val resolveTask = async {
-                    query.mediaId.toSoundCloudUrlOrNull()?.let { url ->
-                        resolveApiV2Track(url, clientId)
-                    }
+        suspend fun lookupTrack(id: String): MatchedTrack? = coroutineScope {
+            val resolveTask = async {
+                query.mediaId.toSoundCloudUrlOrNull()?.let { url ->
+                    resolveApiV2Track(url, id)
                 }
-                val findTask = async {
-                    if (query.mediaId.toSoundCloudUrlOrNull() == null) {
-                        findBestTrack(query, clientId)
-                    } else null
-                }
-                (resolveTask.await() ?: findTask.await())?.also {
-                    trackCache[query.mediaId] = it
-                }
-            } ?: throw SoundCloudResolutionException("SoundCloud match not found for ${query.title}")
+            }
+            val findTask = async {
+                if (query.mediaId.toSoundCloudUrlOrNull() == null) {
+                    findBestTrack(query, id)
+                } else null
+            }
+            resolveTask.await() ?: findTask.await()
+        }
 
-        val expectedDurationMs = query.durationMs ?: track.durationMs
+        val resolvedTrack: MatchedTrack =
+            trackCache[query.mediaId]
+                ?: lookupTrack(clientId)
+                ?: run {
+                    // searchTracks/resolveApiV2Track swallow HTTP errors internally, so a stale or
+                    // rate-limited client ID looks identical to "no match" here. Re-scrape once and
+                    // retry before giving up, mirroring the retry already done below for stream
+                    // resolution — otherwise search-matched (non-direct-URL) lookups, which is what
+                    // every non-SoundCloud frontend relies on, never recover from an expired client ID.
+                    Timber.tag("SoundCloudAudio").i(
+                        "SoundCloud track lookup empty for ${query.title}; re-scraping client ID and retrying",
+                    )
+                    clientId = getClientId(forceRefresh = true)
+                    lookupTrack(clientId)
+                }
+                ?: throw SoundCloudResolutionException("SoundCloud match not found for ${query.title}")
+        trackCache[query.mediaId] = resolvedTrack
+
+        val expectedDurationMs = query.durationMs ?: resolvedTrack.durationMs
 
         val streamResult = runCatching {
             resolveApiV2Stream(
-                track = track,
+                track = resolvedTrack,
                 clientId = clientId,
                 expectedDurationMs = expectedDurationMs,
                 now = now,
@@ -170,7 +194,7 @@ object SoundCloudAudioProvider {
                     clientId = getClientId(forceRefresh = true)
                     runCatching {
                         resolveApiV2Stream(
-                            track = track,
+                            track = resolvedTrack,
                             clientId = clientId,
                             expectedDurationMs = expectedDurationMs,
                             now = now,
@@ -206,6 +230,62 @@ object SoundCloudAudioProvider {
 
     fun invalidateClientId() {
         metadataExpiresAt = 0L
+    }
+
+    /**
+     * Fetches the SoundCloud amplitude envelope for [query]'s best-matched track, for the
+     * "waveform" player slider style. Reuses the same ISRC/title-artist matching pipeline as
+     * [resolve] (and its trackCache), so this costs nothing extra if [resolve] was already
+     * called for the same track. Returns null if no SoundCloud match exists or it has no
+     * waveform data — callers should fall back to the default slider in that case.
+     */
+    suspend fun getWaveform(query: Query): Waveform? = withContext(Dispatchers.IO) {
+        val cacheKey = query.mediaId.ifBlank { "${query.title}|${query.artists.joinToString()}" }
+        waveformCache[cacheKey]?.let { return@withContext it }
+
+        val clientId = getClientId()
+        if (clientId.isBlank()) return@withContext null
+
+        val directTrackUrl = query.mediaId.toSoundCloudUrlOrNull()
+        val track = trackCache[query.mediaId]
+            ?: run {
+                val resolveTask = async {
+                    directTrackUrl?.let { resolveApiV2Track(it, clientId) }
+                }
+                val findTask = async {
+                    if (directTrackUrl == null) findBestTrack(query, clientId) else null
+                }
+                (resolveTask.await() ?: findTask.await())?.also {
+                    trackCache[query.mediaId] = it
+                }
+            } ?: return@withContext null
+
+        val waveformUrl = track.waveformUrl
+            ?: fetchFullTrack(track.trackId, clientId)?.waveformUrl
+            ?: return@withContext null
+
+        val samples = runCatching {
+            val request = Request.Builder()
+                .url(waveformUrl)
+                .get()
+                .header("Accept", "application/json")
+                .header("User-Agent", BROWSER_USER_AGENT)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val payload = response.body.string().takeIf { it.isNotBlank() } ?: return@use null
+                val json = JSONObject(payload)
+                val samplesArray = json.optJSONArray("samples") ?: return@use null
+                val maxSample = (0 until samplesArray.length())
+                    .map { samplesArray.optInt(it, 0) }
+                    .maxOrNull()
+                    ?.takeIf { it > 0 }
+                    ?: return@use null
+                (0 until samplesArray.length()).map { samplesArray.optInt(it, 0) / maxSample.toFloat() }
+            }
+        }.getOrNull() ?: return@withContext null
+
+        Waveform(samples).also { waveformCache[cacheKey] = it }
     }
 
     fun isSoundCloudUrl(value: String): Boolean =
@@ -604,6 +684,49 @@ object SoundCloudAudioProvider {
         tracks: List<MatchedTrack>,
         query: Query,
     ): MatchedTrack? {
+        val strict = selectBestTrackInternal(
+            tracks = tracks,
+            query = query,
+            requireArtistMatch = true,
+            minScore = 420,
+            maxDurationDiffSeconds = 20,
+        )
+        if (strict != null) return strict
+
+        if (tracks.isNotEmpty()) {
+            Timber.tag("SoundCloudAudio").i(
+                "selectBestTrack: no strict match among ${tracks.size} candidate(s) for '${query.title}' " +
+                    "by '${query.artists.joinToString()}'; retrying with relaxed artist matching",
+            )
+        }
+
+        // A lot of SoundCloud uploads (reposts, tracks uploaded under a username rather than the
+        // real artist) don't carry accurate artist/publisher metadata, which makes the strict
+        // artist requirement above reject an otherwise-correct match. Fall back to a looser pass
+        // keyed mainly on title + duration, with a tighter duration tolerance to compensate for
+        // dropping the artist check.
+        val loose = selectBestTrackInternal(
+            tracks = tracks,
+            query = query,
+            requireArtistMatch = false,
+            minScore = 260,
+            maxDurationDiffSeconds = 8,
+        )
+        if (loose == null && tracks.isNotEmpty()) {
+            Timber.tag("SoundCloudAudio").i(
+                "selectBestTrack: no relaxed match either for '${query.title}' among ${tracks.size} candidate(s)",
+            )
+        }
+        return loose
+    }
+
+    private fun selectBestTrackInternal(
+        tracks: List<MatchedTrack>,
+        query: Query,
+        requireArtistMatch: Boolean,
+        minScore: Int,
+        maxDurationDiffSeconds: Long,
+    ): MatchedTrack? {
         val wantedTitle = query.title.normalized()
         val wantedArtists = query.artists.map { it.normalized() }.filter { it.isNotBlank() }
         val wantedAlbum = query.album.normalized()
@@ -641,7 +764,8 @@ object SoundCloudAudioProvider {
                         (wantedTitle.length >= 4 && (candidateTitle.contains(wantedTitle) || wantedTitle.contains(candidateTitle))) ||
                         titleCoverage >= if (wantedTitleTokens.size <= 2) 1.0 else 0.75
             val hasArtistMatch =
-                wantedArtists.isEmpty() ||
+                !requireArtistMatch ||
+                        wantedArtists.isEmpty() ||
                         wantedArtists.any { wanted ->
                             candidateArtists.any { candidate -> artistMatches(wanted, candidate) }
                         }
@@ -651,7 +775,7 @@ object SoundCloudAudioProvider {
                 } else {
                     null
                 }
-            val hasSafeDuration = durationDiffSeconds == null || durationDiffSeconds <= 20
+            val hasSafeDuration = durationDiffSeconds == null || durationDiffSeconds <= maxDurationDiffSeconds
 
             if (!hasTitleMatch || !hasArtistMatch || !hasSafeDuration) continue
 
@@ -679,7 +803,7 @@ object SoundCloudAudioProvider {
                     wantedArtists.any { wanted -> candidateArtists.any { it == wanted } } -> 230
                     wantedArtists.any { wanted -> candidateArtists.any { it.contains(wanted) || wanted.contains(it) } } -> 120
                     wantedArtists.any { wanted -> candidateArtists.any { wanted.wordsOverlap(it) >= 1 } } -> 40
-                    else -> -80
+                    else -> if (requireArtistMatch) -80 else 0
                 }
             }
 
@@ -692,7 +816,7 @@ object SoundCloudAudioProvider {
                 }
             }
 
-            if (score >= 420) {
+            if (score >= minScore) {
                 candidates += Candidate(track, score)
             }
         }
@@ -777,6 +901,7 @@ object SoundCloudAudioProvider {
             durationMs = durationMs,
             trackAuthorization = stringOrNull("track_authorization"),
             transcodings = optJSONObject("media")?.optJSONArray("transcodings"),
+            waveformUrl = stringOrNull("waveform_url"),
         )
     }
 

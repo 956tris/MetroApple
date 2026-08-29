@@ -21,6 +21,8 @@ import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.allowHardware
 import coil3.request.crossfade
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.YouTubeLocale
 import com.metrolist.kugou.KuGou
@@ -78,6 +80,19 @@ class App :
 
         // Initialize cipher deobfuscator for WEB_REMIX streaming
         CipherDeobfuscator.initialize(this)
+
+        // Initialize Chaquopy
+        if (!Python.isStarted()) {
+            Python.start(AndroidPlatform(this))
+        }
+
+        // yt-dlp is our primary YouTube audio resolution path (see
+        // YouTubeAudioProvider); it needs to stay current with YouTube's
+        // extractor-breaking changes independent of app releases. Check PyPI
+        // and upgrade in the background — never blocks startup or playback.
+        applicationScope.launch(Dispatchers.IO) {
+            com.metrolist.music.youtube.YtDlpUpdater.updateIfNeeded()
+        }
 
         Timber.plant(Timber.DebugTree())
 

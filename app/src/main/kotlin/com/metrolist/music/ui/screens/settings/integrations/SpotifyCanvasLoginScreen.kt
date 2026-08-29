@@ -60,6 +60,50 @@ private fun isSpotifyWebPlayerUrl(url: String?): Boolean =
     url?.startsWith("https://open.spotify.com") == true ||
         url?.startsWith("https://www.spotify.com") == true
 
+/**
+ * Spotify's login page renders <main> as `position: absolute; overflow: auto`.
+ * Under WebView this collapses to the height of its first laid-out child
+ * (~48px) instead of the ~700px+ of actual form content, clipping the
+ * login form out of view. This is a layout bug, not a selector change, so
+ * we neutralize it with an injected stylesheet rather than touching the UA
+ * or DOM structure. A MutationObserver re-applies the fix since Spotify's
+ * SPA can re-render/re-collapse `<main>` after onPageFinished fires.
+ */
+private fun injectSpotifyLayoutFix(view: WebView) {
+    val js =
+        """
+        (function() {
+            var STYLE_ID = 'metrolist-spotify-layout-fix';
+            function applyFix() {
+                if (document.getElementById(STYLE_ID)) return;
+                var style = document.createElement('style');
+                style.id = STYLE_ID;
+                style.type = 'text/css';
+                style.innerHTML = [
+                    'main {',
+                    '  position: relative !important;',
+                    '  height: auto !important;',
+                    '  min-height: 100% !important;',
+                    '  overflow: visible !important;',
+                    '}',
+                    'main > div {',
+                    '  height: auto !important;',
+                    '  overflow: visible !important;',
+                    '}'
+                    ].join('\n');
+                (document.head || document.documentElement).appendChild(style);
+            }
+            applyFix();
+            if (window.__metrolistSpotifyObserver) return;
+            var observer = new MutationObserver(function() { applyFix(); });
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+            window.__metrolistSpotifyObserver = observer;
+        })();
+        """.trimIndent()
+
+    view.evaluateJavascript(js, null)
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -124,6 +168,7 @@ fun SpotifyCanvasLoginScreen(
                                 view: WebView,
                                 url: String?,
                             ) {
+                                injectSpotifyLayoutFix(view)
                                 captureCookie(showConfirmation = isSpotifyWebPlayerUrl(url))
                             }
                         }

@@ -869,7 +869,14 @@ object TidalAudioProvider {
         preferLiveDash: Boolean,
         audioQuality: TidalAudioQuality,
     ): Resolved {
-        val url = if (manifestFormats != null) {
+        val url = if (endpoint.baseUrl.startsWith("https://igameten10-ez-hifi-api.hf.space/downloadv2/link/direct", ignoreCase = true)) {
+            endpoint.baseUrl
+                .toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("id", track.trackId)
+                .addQueryParameter("quality", quality)
+                .build()
+        } else if (manifestFormats != null) {
             endpoint.baseUrl
                 .toHttpUrl()
                 .newBuilder()

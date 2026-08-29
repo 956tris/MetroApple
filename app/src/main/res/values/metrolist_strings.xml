@@ -1366,4 +1366,6 @@
     <string name="loudness_level_quiet">Quiet (-19 dB)</string>
     <string name="discord_show_playback_details">Show playback details</string>
     <string name="discord_show_playback_details_description">Shows bitrate and sample rate in Rich Presence</string>
+
+    <!-- Waveform slider style -->
 </resources>

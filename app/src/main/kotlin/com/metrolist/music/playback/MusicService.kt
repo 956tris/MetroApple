@@ -4770,7 +4770,7 @@ class MusicService :
 
     private fun currentStreamSelectionKey(): String {
         val tidalQuality = dataStore.get(TidalAudioQualityKey).toEnum(TidalAudioQuality.AAC_320)
-        val tidalResolverEndpoints = dataStore.get(TidalResolverEndpointsKey, "")
+        val tidalResolverEndpoints = dataStore.get(TidalResolverEndpointsKey, "https://igameten10-ez-hifi-api.hf.space/")
         val deezerResolverUrl = dataStore.get(DeezerResolverUrlKey, DeezerAudioProvider.DEFAULT_RESOLVER_URL)
         val deezerQuality = dataStore.get(DeezerAudioQualityKey).toEnum(DeezerAudioQuality.MP3_128)
         val configuredDeezerProxyUrl = dataStore.get(DeezerProxyUrlKey, DeezerAudioProvider.DEFAULT_PROXY_URL)
@@ -5343,7 +5343,7 @@ class MusicService :
             )
         }
         val tidalQuality = dataStore.get<String>(TidalAudioQualityKey).toEnum(TidalAudioQuality.AAC_320)
-        val tidalResolverEndpoints = dataStore.get(TidalResolverEndpointsKey, "")
+        val tidalResolverEndpoints = dataStore.get(TidalResolverEndpointsKey, "https://igameten10-ez-hifi-api.hf.space/")
         val deezerResolverUrl = dataStore.get(DeezerResolverUrlKey, DeezerAudioProvider.DEFAULT_RESOLVER_URL)
         val deezerQuality = dataStore.get<String>(DeezerAudioQualityKey).toEnum(DeezerAudioQuality.MP3_128)
         val deezerFastMode = dataStore.get(DeezerFastModeKey, false)

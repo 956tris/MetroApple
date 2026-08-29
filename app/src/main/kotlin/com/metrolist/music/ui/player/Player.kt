@@ -189,6 +189,7 @@ import com.metrolist.music.ui.component.PlayerSliderTrack
 import com.metrolist.music.ui.component.ResizableIconButton
 import com.metrolist.music.ui.component.SquigglySlider
 import com.metrolist.music.ui.component.WavySlider
+import com.metrolist.music.ui.component.WaveformSlider
 import com.metrolist.music.ui.component.rememberBottomSheetState
 import com.metrolist.music.ui.menu.PlayerMenu
 import com.metrolist.music.ui.menu.ShareSongLinkDialog
@@ -204,6 +205,7 @@ import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.utils.spotify.SpotifyCanvasMedia
 import com.metrolist.music.utils.spotify.SpotifyCanvasVideoBackground
 import com.metrolist.music.utils.spotify.rememberSpotifyCanvasMedia
+import com.metrolist.music.soundcloud.SoundCloudAudioProvider
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -215,7 +217,6 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import com.metrolist.music.ui.component.Icon as MIcon
 import com.metrolist.music.constants.SleepTimerDefaultKey
-import com.metrolist.music.utils.dataStore
 import androidx.datastore.preferences.core.edit
 import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
@@ -663,6 +664,33 @@ fun BottomSheetPlayer(
 
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
     val squigglySlider by rememberPreference(SquigglySliderKey, defaultValue = false)
+
+    var waveformSamples by remember { mutableStateOf<List<Float>?>(null) }
+
+    LaunchedEffect(mediaMetadata?.id, sliderStyle) {
+        if (sliderStyle != SliderStyle.WAVEFORM) {
+            waveformSamples = null
+            return@LaunchedEffect
+        }
+
+        val metadata = mediaMetadata
+        if (metadata == null) {
+            waveformSamples = null
+            return@LaunchedEffect
+        }
+
+        // Reset samples on song change to avoid showing previous track's waveform
+        waveformSamples = null
+
+        val query = SoundCloudAudioProvider.Query(
+            mediaId = metadata.id,
+            title = metadata.title,
+            artists = metadata.artists.map { it.name },
+            album = metadata.album?.title,
+            durationMs = metadata.duration.toLong() * 1000L
+        )
+        waveformSamples = SoundCloudAudioProvider.getWaveform(query)?.samples
+    }
 
     // Listen Together state (reactive)
     val listenTogetherManager = LocalListenTogetherManager.current
@@ -1136,9 +1164,9 @@ fun BottomSheetPlayer(
         targetValue =
             when (effectivePlayerBackground) {
                 PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onBackground
-                PlayerBackgroundStyle.BLUR -> Color.White
-                PlayerBackgroundStyle.GALAXY_BLUR -> Color.White
-                PlayerBackgroundStyle.GRADIENT -> Color.White
+                PlayerBackgroundStyle.BLUR,
+                PlayerBackgroundStyle.GALAXY_BLUR,
+                PlayerBackgroundStyle.GRADIENT,
                 PlayerBackgroundStyle.MOVING_BLUR -> Color.White
             },
         label = "TextBackgroundColor",
@@ -1661,7 +1689,7 @@ fun BottomSheetPlayer(
                     }
 
                     else -> {
-                        PlayerBackgroundStyle.DEFAULT
+                        Box(Modifier.fillMaxSize())
                     }
                 }
 
@@ -2269,6 +2297,32 @@ fun BottomSheetPlayer(
                                 bufferedValue = displayedBufferedPosition.toFloat(),
                             )
                         },
+                        modifier = Modifier.padding(horizontal = PlayerHorizontalPadding),
+                    )
+                }
+
+                SliderStyle.WAVEFORM -> {
+                    val colors = PlayerSliderColors.getSliderColors(textButtonColor, effectivePlayerBackground, useDarkTheme)
+                    WaveformSlider(
+                        value = displayedSliderPosition.toFloat(),
+                        onValueChange = {
+                            if (canSeekPlayer) {
+                                sliderPosition = it.toLong()
+                            }
+                        },
+                        onValueChangeFinished = {
+                            if (canSeekPlayer) {
+                                sliderPosition?.let {
+                                    seekToPlayerPosition(it)
+                                }
+                                sliderPosition = null
+                            }
+                        },
+                        samples = waveformSamples,
+                        valueRange = sliderValueRange,
+                        enabled = canSeekPlayer,
+                        colors = colors,
+                        bufferedValue = displayedBufferedPosition.toFloat(),
                         modifier = Modifier.padding(horizontal = PlayerHorizontalPadding),
                     )
                 }
