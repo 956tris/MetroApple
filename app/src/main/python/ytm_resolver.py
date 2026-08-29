@@ -19,8 +19,8 @@ def get_version():
     return yt_dlp.version.__version__
 
 
-def _build_opts(client):
-    return {
+def _build_opts(client, player_po_token=None, streaming_po_token=None, visitor_data=None):
+    opts = {
         # Narrowed selector: avoids yt-dlp building/sorting the full
         # (audio+video) format list before picking - we only ever want
         # audio.
@@ -43,16 +43,35 @@ def _build_opts(client):
         'socket_timeout': 8,
     }
 
+    # PO tokens generated via PoTokenGenerator (WebView botguard). Format
+    # confirmed against yt-dlp's current PO-Token-Guide: comma-separated
+    # "CLIENT.CONTEXT+TOKEN" entries, context is "gvs" (googlevideo/
+    # streaming URLs) or "player" (innertube player request). GVS tokens
+    # are rejected without visitor_data alongside them, so that's threaded
+    # through too whenever we have a token to send.
+    po_tokens = []
+    if streaming_po_token:
+        po_tokens.append(f'{client}.gvs+{streaming_po_token}')
+    if player_po_token:
+        po_tokens.append(f'{client}.player+{player_po_token}')
+    if po_tokens:
+        opts['extractor_args']['youtube']['po_token'] = po_tokens
+        if visitor_data:
+            opts['extractor_args']['youtube']['visitor_data'] = visitor_data
 
-def _try_client(video_id, client):
-    with yt_dlp.YoutubeDL(_build_opts(client)) as ydl:
+    return opts
+
+
+def _try_client(video_id, client, player_po_token=None, streaming_po_token=None, visitor_data=None):
+    opts = _build_opts(client, player_po_token, streaming_po_token, visitor_data)
+    with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
         if info and 'url' in info:
             return info
     return None
 
 
-def resolve(video_id):
+def resolve(video_id, player_po_token=None, streaming_po_token=None, visitor_data=None):
     global _last_working_client
 
     # Try last-known-good client first so the common case is a single
@@ -69,7 +88,7 @@ def resolve(video_id):
 
     for client in ordered_clients:
         try:
-            info = _try_client(video_id, client)
+            info = _try_client(video_id, client, player_po_token, streaming_po_token, visitor_data)
             if info:
                 with _lock:
                     _last_working_client = client

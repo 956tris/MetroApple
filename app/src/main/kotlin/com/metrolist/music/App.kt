@@ -92,6 +92,21 @@ class App :
         // matters for the first import in a process.
         com.metrolist.music.youtube.YtDlpUpdater.applyStagedUpdateIfPresent(this)
 
+        // TEMP DIAGNOSTIC — verifying PoTokenGenerator (dead code since the
+        // yt-dlp refactor) still actually works before wiring it into the
+        // resolution path. Remove once verified via logcat filtered on
+        // "PoTokenTest" + "PoTokenGenerator".
+        applicationScope.launch(Dispatchers.IO) {
+            val sessionId = YouTube.dataSyncId ?: YouTube.visitorData
+            val result = com.metrolist.music.utils.potoken.PoTokenGenerator()
+                .getWebClientPoToken("dQw4w9WgXcQ", sessionId ?: "test-session")
+            Timber.tag("PoTokenTest").i(
+                if (result != null)
+                    "SUCCESS: player=${result.playerRequestPoToken.take(10)}... streaming=${result.streamingDataPoToken.take(10)}..."
+                else "FAILED: null result"
+            )
+        }
+
         // yt-dlp is our primary YouTube audio resolution path (see
         // YouTubeAudioProvider); it needs to stay current with YouTube's
         // extractor-breaking changes independent of app releases. Check PyPI

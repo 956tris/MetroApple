@@ -228,9 +228,31 @@ object YouTubeAudioProvider {
         videoId: String,
         now: Long,
     ): Resolved = withContext(Dispatchers.IO) {
+        // PO tokens (generated via PoTokenGenerator's WebView botguard) are
+        // best-effort: if the session id is missing, generation fails, or
+        // it times out, we fall through to token-less resolution rather
+        // than treating it as a hard error. When the user is logged in,
+        // YouTube.dataSyncId ties the token to their session, which per
+        // yt-dlp's PO Token Guide is expected to be treated more favorably
+        // than an anonymous visitor-data-only token.
+        val sessionId = YouTube.dataSyncId ?: YouTube.visitorData
+        val poTokenResult = if (sessionId != null) {
+            runCatching { poTokenGenerator.getWebClientPoToken(videoId, sessionId) }
+                .onFailure { Timber.tag(TAG).w(it, "PoToken generation failed for $videoId, proceeding without") }
+                .getOrNull()
+        } else {
+            null
+        }
+
         val py = Python.getInstance()
         val ytmResolver = py.getModule("ytm_resolver")
-        val resultJsonString = ytmResolver.callAttr("resolve", videoId).toString()
+        val resultJsonString = ytmResolver.callAttr(
+            "resolve",
+            videoId,
+            poTokenResult?.playerRequestPoToken,
+            poTokenResult?.streamingDataPoToken,
+            YouTube.visitorData,
+        ).toString()
 
         val json = org.json.JSONObject(resultJsonString)
         if (json.has("error")) {

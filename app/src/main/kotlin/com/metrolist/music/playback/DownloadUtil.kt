@@ -534,7 +534,7 @@ constructor(
                 AudioProviderOrderItem.YOUTUBE_MUSIC -> {
                     attemptedProviders += provider
                     youtubeAttempt = runCatching {
-                        resolveYouTubeFallback(mediaId)
+                        resolveYouTubeFallback(mediaId, song)
                     }
                     youtubeAttempt.getOrNull()?.let { resolved ->
                         Timber.tag(TAG).i("Using YouTube Music stream for download $mediaId")
@@ -599,7 +599,7 @@ constructor(
 
         if (!attemptedProviders.contains(AudioProviderOrderItem.YOUTUBE_MUSIC)) {
             youtubeAttempt = runCatching {
-                resolveYouTubeFallback(mediaId)
+                resolveYouTubeFallback(mediaId, song)
             }
         }
         youtubeAttempt.getOrNull()?.let { return it }
@@ -641,8 +641,14 @@ constructor(
         )
     }
 
-    private suspend fun resolveYouTubeFallback(mediaId: String): DownloadStreamResolution {
-        val resolved = YouTubeAudioProvider.resolve(mediaId)
+    private suspend fun resolveYouTubeFallback(mediaId: String, song: Song? = null): DownloadStreamResolution {
+        val fallbackQuery = song?.let {
+            YouTubeAudioProvider.TrackQuery(
+                title = it.song.title,
+                artist = it.orderedArtists.firstOrNull()?.name ?: "",
+            )
+        }
+        val resolved = YouTubeAudioProvider.resolve(mediaId, context, fallbackQuery)
         return DownloadStreamResolution(
             uri = resolved.mediaUri,
             expiresAtMs = resolved.expiresAtMs,
