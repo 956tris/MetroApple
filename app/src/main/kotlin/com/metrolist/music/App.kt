@@ -86,12 +86,26 @@ class App :
             Python.start(AndroidPlatform(this))
         }
 
+        // If a yt-dlp self-update was staged on a previous run (see
+        // YtDlpUpdater), inject it onto sys.path now — must happen before
+        // anything imports yt_dlp/ytm_resolver, since sys.path order only
+        // matters for the first import in a process.
+        com.metrolist.music.youtube.YtDlpUpdater.applyStagedUpdateIfPresent(this)
+
         // yt-dlp is our primary YouTube audio resolution path (see
         // YouTubeAudioProvider); it needs to stay current with YouTube's
         // extractor-breaking changes independent of app releases. Check PyPI
-        // and upgrade in the background — never blocks startup or playback.
+        // and stage an update in the background — never blocks startup or
+        // playback. Respects the user's stable/nightly channel choice from
+        // Settings (defaults to stable).
         applicationScope.launch(Dispatchers.IO) {
-            com.metrolist.music.youtube.YtDlpUpdater.updateIfNeeded()
+            val useNightly = dataStore.data.first()[YtDlpUseNightlyChannelKey] ?: false
+            val channel = if (useNightly) {
+                com.metrolist.music.youtube.YtDlpUpdater.Channel.NIGHTLY
+            } else {
+                com.metrolist.music.youtube.YtDlpUpdater.Channel.STABLE
+            }
+            com.metrolist.music.youtube.YtDlpUpdater.updateIfNeeded(this@App, channel = channel)
         }
 
         Timber.plant(Timber.DebugTree())

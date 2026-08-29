@@ -8,6 +8,7 @@ package com.metrolist.music.youtube
 import com.metrolist.innertube.NewPipeExtractor
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.NewPipeUtils
+import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.YouTubeClient
 import com.metrolist.innertube.models.response.PlayerResponse
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -122,11 +123,70 @@ object YouTubeAudioProvider {
 
     class YouTubeAudioResolutionException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-    suspend fun resolve(videoId: String): Resolved {
+    /**
+     * Track metadata used to resolve a real YouTube video ID via search when
+     * the caller's mediaId isn't one (e.g. a Spotify URI falling back to
+     * YouTube for playback). Mirrors what the user would get manually by
+     * hitting "share" on a track and searching
+     * `music.youtube.com/search?q=<title>+<artist>`.
+     */
+    data class TrackQuery(val title: String, val artist: String)
+
+    /** A real YouTube video ID is always exactly 11 chars of this charset. */
+    private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[A-Za-z0-9_-]{11}$")
+
+    private fun isValidYouTubeVideoId(id: String): Boolean = YOUTUBE_VIDEO_ID_REGEX.matches(id)
+
+    suspend fun resolve(mediaId: String, context: android.content.Context, fallbackQuery: TrackQuery? = null): Resolved {
         val now = System.currentTimeMillis()
-        streamCache[videoId]
+        // Cache is keyed by the ORIGINAL id (e.g. the Spotify URI), not the
+        // resolved YouTube id, so repeat playback of the same non-YouTube
+        // track doesn't re-search every time.
+        streamCache[mediaId]
             ?.takeIf { it.expiresAtMs > now + 30_000L }
             ?.let { return it }
+
+        val videoId = if (isValidYouTubeVideoId(mediaId)) {
+            mediaId
+        } else {
+            val query = fallbackQuery
+                ?: throw YouTubeAudioResolutionException(
+                    "Cannot resolve non-YouTube id '$mediaId': no track metadata provided for search fallback",
+                )
+            resolveViaSearch(query)
+        }
+
+        return resolveVideoId(videoId, now, cacheKey = mediaId, context = context)
+    }
+
+    /**
+     * Searches YouTube Music for [query] and returns the top song result's
+     * real video ID — the same mechanism as manually sharing a track and
+     * pasting `https://music.youtube.com/search?q=<title>+<artist>`.
+     */
+    private suspend fun resolveViaSearch(query: TrackQuery): String {
+        val searchQuery = listOf(query.title, query.artist)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+        if (searchQuery.isBlank()) {
+            throw YouTubeAudioResolutionException("Cannot search YouTube: empty title/artist")
+        }
+
+        val result = YouTube.search(searchQuery, YouTube.SearchFilter.FILTER_SONG).getOrElse { error ->
+            throw YouTubeAudioResolutionException(
+                "YouTube search failed for \"$searchQuery\": ${error.readableMessage()}",
+                error,
+            )
+        }
+
+        val topSong = result.items.filterIsInstance<SongItem>().firstOrNull()
+            ?: throw YouTubeAudioResolutionException("No YouTube Music results for \"$searchQuery\"")
+
+        Timber.tag(TAG).i("Resolved \"$searchQuery\" -> YouTube video ${topSong.id} (${topSong.title})")
+        return topSong.id
+    }
+
+    private suspend fun resolveVideoId(videoId: String, now: Long, cacheKey: String, context: android.content.Context): Resolved {
 
         // yt-dlp (on-device via Chaquopy) is now the sole primary path. It
         // uses the device's own IP, handles SABR internally, and its
@@ -138,7 +198,7 @@ object YouTubeAudioProvider {
         // churn.
         var ytDlpFailure: Throwable? = null
         runCatching { resolveWithYtDlpOnDevice(videoId, now) }
-            .onSuccess { return cache(videoId, it) }
+            .onSuccess { return cache(cacheKey, it) }
             .onFailure {
                 ytDlpFailure = it
                 Timber.tag(TAG).w(it, "yt-dlp resolution failed for $videoId, forcing an update and retrying once")
@@ -150,9 +210,9 @@ object YouTubeAudioProvider {
         // breaking change and our bundled build-time version doesn't know
         // about it yet" — this is the self-healing path for that.
         runCatching {
-            YtDlpUpdater.updateIfNeeded(force = true)
+            YtDlpUpdater.updateIfNeeded(context, force = true)
             resolveWithYtDlpOnDevice(videoId, now)
-        }.onSuccess { return cache(videoId, it) }
+        }.onSuccess { return cache(cacheKey, it) }
             .onFailure { ytDlpFailure = it }
 
         throw YouTubeAudioResolutionException(

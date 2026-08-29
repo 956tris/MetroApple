@@ -75,6 +75,7 @@ import com.metrolist.music.constants.SkipSilenceKey
 import com.metrolist.music.constants.StopMusicOnTaskClearKey
 import com.metrolist.music.constants.StopOnProviderErrorKey
 import com.metrolist.music.constants.VarispeedKey
+import com.metrolist.music.constants.YtDlpUseNightlyChannelKey
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.IconButton
@@ -244,6 +245,10 @@ fun PlayerSettings(
     val coroutineScope = rememberCoroutineScope()
     var ytDlpStatusText by remember { mutableStateOf<String?>(null) }
     var ytDlpChecking by remember { mutableStateOf(false) }
+    val (ytDlpUseNightly, onYtDlpUseNightlyChange) = rememberPreference(
+        YtDlpUseNightlyChannelKey,
+        defaultValue = false
+    )
 
     LaunchedEffect(Unit) {
         val installed = YtDlpUpdater.installedVersion()
@@ -410,15 +415,38 @@ fun PlayerSettings(
                                 ytDlpChecking -> "Checking for updates\u2026"
                                 ytDlpStatusText != null -> ytDlpStatusText!!
                                 else -> "Checking installed version\u2026"
-                            }
+                            } + if (ytDlpUseNightly) " \u00b7 Nightly channel" else ""
                         )
                     },
                     enabled = !ytDlpChecking,
+                    trailingContent = {
+                        // Force the nightly/pre-release build when stable yt-dlp is broken
+                        // (e.g. YouTube shipped a breaking change stable hasn't caught up to
+                        // yet). Tapping the row still runs the check; this only picks the channel.
+                        Switch(
+                            checked = ytDlpUseNightly,
+                            onCheckedChange = onYtDlpUseNightlyChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (ytDlpUseNightly) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
                     onClick = {
                         if (!ytDlpChecking) {
                             ytDlpChecking = true
+                            val channel = if (ytDlpUseNightly) {
+                                YtDlpUpdater.Channel.NIGHTLY
+                            } else {
+                                YtDlpUpdater.Channel.STABLE
+                            }
                             coroutineScope.launch {
-                                ytDlpStatusText = when (val result = YtDlpUpdater.manualUpdateCheck(context)) {
+                                ytDlpStatusText = when (val result = YtDlpUpdater.manualUpdateCheck(context, channel)) {
                                     is YtDlpUpdater.ManualUpdateResult.Updated ->
                                         "Updated to yt-dlp ${result.version}"
                                     is YtDlpUpdater.ManualUpdateResult.AlreadyUpToDate ->

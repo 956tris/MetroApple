@@ -5649,6 +5649,8 @@ class MusicService :
                         resolveYouTubeFallback(
                             mediaId = providerMediaId(provider),
                             cacheMediaId = mediaId,
+                            song = song,
+                            queuedMetadata = queuedMetadata,
                         )
                     }
                     youtubeAttempt.getOrNull()?.let { resolved ->
@@ -5721,7 +5723,7 @@ class MusicService :
 
         if (!attemptedProviders.contains(AudioProviderOrderItem.YOUTUBE_MUSIC)) {
             youtubeAttempt = runCatching {
-                resolveYouTubeFallback(mediaId)
+                resolveYouTubeFallback(mediaId, song = song, queuedMetadata = queuedMetadata)
             }
         }
         youtubeAttempt.getOrNull()?.let { return it }
@@ -5796,8 +5798,17 @@ class MusicService :
     private suspend fun resolveYouTubeFallback(
         mediaId: String,
         cacheMediaId: String = mediaId,
+        song: Song? = null,
+        queuedMetadata: com.metrolist.music.models.MediaMetadata? = null,
     ): PlaybackStreamResolution {
-        val resolved = YouTubeAudioProvider.resolve(mediaId)
+        val title = song?.song?.title ?: queuedMetadata?.title
+        val artist = song?.orderedArtists?.firstOrNull()?.name ?: queuedMetadata?.artists?.firstOrNull()?.name
+        val fallbackQuery = if (!title.isNullOrBlank()) {
+            YouTubeAudioProvider.TrackQuery(title = title, artist = artist.orEmpty())
+        } else {
+            null
+        }
+        val resolved = YouTubeAudioProvider.resolve(mediaId, this@MusicService, fallbackQuery)
         Timber.tag("MusicService").i(
             "Using YouTube AAC fallback for $mediaId: itag=${resolved.itag}, bitrate=${resolved.bitrate}",
         )
