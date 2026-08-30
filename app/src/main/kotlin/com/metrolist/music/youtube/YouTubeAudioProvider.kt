@@ -252,6 +252,7 @@ object YouTubeAudioProvider {
             poTokenResult?.playerRequestPoToken,
             poTokenResult?.streamingDataPoToken,
             YouTube.visitorData,
+            YouTube.cookie?.takeIf { it.isNotBlank() },
         ).toString()
 
         val json = org.json.JSONObject(resultJsonString)

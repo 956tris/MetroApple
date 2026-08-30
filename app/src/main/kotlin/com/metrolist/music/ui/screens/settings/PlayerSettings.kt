@@ -415,28 +415,10 @@ fun PlayerSettings(
                                 ytDlpChecking -> "Checking for updates\u2026"
                                 ytDlpStatusText != null -> ytDlpStatusText!!
                                 else -> "Checking installed version\u2026"
-                            } + if (ytDlpUseNightly) " \u00b7 Nightly channel" else ""
-                        )
-                    },
-                    enabled = !ytDlpChecking,
-                    trailingContent = {
-                        // Force the nightly/pre-release build when stable yt-dlp is broken
-                        // (e.g. YouTube shipped a breaking change stable hasn't caught up to
-                        // yet). Tapping the row still runs the check; this only picks the channel.
-                        Switch(
-                            checked = ytDlpUseNightly,
-                            onCheckedChange = onYtDlpUseNightlyChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (ytDlpUseNightly) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(SwitchDefaults.IconSize)
-                                )
                             }
                         )
                     },
+                    enabled = !ytDlpChecking,
                     onClick = {
                         if (!ytDlpChecking) {
                             ytDlpChecking = true
@@ -463,6 +445,27 @@ fun PlayerSettings(
                             }
                         }
                     }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.bug_report),
+                    title = { Text("YT-DLP Nightly Channel") },
+                    description = { Text("Use pre-release yt-dlp builds \u2014 useful if stable breaks after a YouTube change") },
+                    trailingContent = {
+                        Switch(
+                            checked = ytDlpUseNightly,
+                            onCheckedChange = onYtDlpUseNightlyChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (ytDlpUseNightly) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onYtDlpUseNightlyChange(!ytDlpUseNightly) }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.shuffle),

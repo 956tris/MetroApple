@@ -28,8 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import kotlin.math.max
@@ -141,12 +139,16 @@ fun WaveformSlider(
 
             val totalWidth = size.width
             val barSlotWidth = totalWidth / barCount
-            // Leave a small gap between bars, like SoundCloud's own player.
-            val barWidth = max(barSlotWidth * 0.6f, 1.5f)
-            val strokeCap = StrokeCap.Round
+            // M3 Expressive chunky-bar look: wider pill segments with a visible gap between
+            // them, rather than thin SoundCloud-style hairlines. Explicit rounded rects (not
+            // stroke-cap lines) so the corner radius reads clearly even on short/quiet bars.
+            val barWidth = max(barSlotWidth * 0.72f, 3.dp.toPx())
+            val cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2f, barWidth / 2f)
             val centerY = size.height / 2f
-            val maxBarHeight = size.height * 0.92f
-            val minBarHeight = size.height * 0.08f
+            val maxBarHeight = size.height * 0.88f
+            // Quiet passages still render as a small rounded pill/dot rather than nearly
+            // vanishing, matching M3 Expressive's preference for legible, chunky shapes.
+            val minBarHeight = max(size.height * 0.16f, barWidth)
 
             val progressBarIndex = (progress * barCount).roundToInt().coerceIn(0, barCount)
             val bufferedBarIndex = (bufferedProgress * barCount).roundToInt().coerceIn(0, barCount)
@@ -162,12 +164,11 @@ fun WaveformSlider(
                     else -> inactiveColor
                 }
 
-                drawLine(
+                drawRoundRect(
                     color = color,
-                    start = androidx.compose.ui.geometry.Offset(x, centerY - barHeight / 2f),
-                    end = androidx.compose.ui.geometry.Offset(x, centerY + barHeight / 2f),
-                    strokeWidth = barWidth,
-                    cap = strokeCap,
+                    topLeft = androidx.compose.ui.geometry.Offset(x - barWidth / 2f, centerY - barHeight / 2f),
+                    size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                    cornerRadius = cornerRadius,
                 )
             }
         }

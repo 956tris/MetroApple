@@ -253,7 +253,7 @@ object SoundCloudAudioProvider {
                     directTrackUrl?.let { resolveApiV2Track(it, clientId) }
                 }
                 val findTask = async {
-                    if (directTrackUrl == null) findBestTrack(query, clientId) else null
+                    if (directTrackUrl == null) findBestTrack(query, clientId, forWaveform = true) else null
                 }
                 (resolveTask.await() ?: findTask.await())?.also {
                     trackCache[query.mediaId] = it
@@ -432,10 +432,12 @@ object SoundCloudAudioProvider {
     private suspend fun findBestTrack(
         query: Query,
         clientId: String,
+        forWaveform: Boolean = false,
     ): MatchedTrack? = coroutineScope {
-        val term = searchTerms(query).firstOrNull() ?: return@coroutineScope null
+        val terms = searchTerms(query, forWaveform)
+        if (terms.isEmpty()) return@coroutineScope null
 
-        val apiTask = async {
+        suspend fun searchTerm(term: String): List<MatchedTrack> =
             searchTracks(term, clientId, limit = SEARCH_LIMIT)?.let { results ->
                 buildList {
                     for (index in 0 until results.length()) {
@@ -446,10 +448,19 @@ object SoundCloudAudioProvider {
                     }
                 }
             }.orEmpty()
+
+        if (!forWaveform) {
+            val allTracks = searchTerm(terms.first()).distinctBy { it.permalinkUrl }
+            return@coroutineScope selectBestTrack(allTracks, query)
         }
 
-        val allTracks = apiTask.await().distinctBy { it.permalinkUrl }
-        selectBestTrack(allTracks, query)
+        // Waveform-only lookup: a wrong match here is cosmetic (a slightly-off seek bar), not
+        // wrong audio, so it's worth trying every fallback term and pooling results before
+        // giving up, rather than the single-term/single-tier strictness that audio resolution
+        // needs. Run all terms in parallel since they're independent HTTP calls.
+        val termResults = terms.map { term -> async { searchTerm(term) } }.awaitAll()
+        val allTracks = termResults.flatten().distinctBy { it.permalinkUrl }
+        selectBestTrack(allTracks, query, forWaveform = true)
     }
 
     private suspend fun searchTracks(
@@ -683,6 +694,7 @@ object SoundCloudAudioProvider {
     private fun selectBestTrack(
         tracks: List<MatchedTrack>,
         query: Query,
+        forWaveform: Boolean = false,
     ): MatchedTrack? {
         val strict = selectBestTrackInternal(
             tracks = tracks,
@@ -712,12 +724,31 @@ object SoundCloudAudioProvider {
             minScore = 260,
             maxDurationDiffSeconds = 8,
         )
-        if (loose == null && tracks.isNotEmpty()) {
+        if (loose != null) return loose
+
+        if (tracks.isNotEmpty()) {
             Timber.tag("SoundCloudAudio").i(
-                "selectBestTrack: no relaxed match either for '${query.title}' among ${tracks.size} candidate(s)",
+                "selectBestTrack: no relaxed match either for '${query.title}' among ${tracks.size} candidate(s)" +
+                    if (forWaveform) "; retrying with waveform-only lenient matching" else "",
             )
         }
-        return loose
+
+        if (!forWaveform) return null
+
+        // Waveform-only tier: a wrong pick here just means a slightly-off (or someone else's)
+        // seek bar shape, not wrong audio playing, so it's worth accepting matches the strict
+        // audio-resolution tiers above would correctly reject — title-only matching, no artist
+        // requirement, a much wider duration tolerance, and remix/live/edit versions allowed
+        // through (dropping hasVersionMismatch, which selectBestTrackInternal doesn't check
+        // itself — see below).
+        return selectBestTrackInternal(
+            tracks = tracks,
+            query = query,
+            requireArtistMatch = false,
+            minScore = 120,
+            maxDurationDiffSeconds = 30,
+            allowVersionMismatch = true,
+        )
     }
 
     private fun selectBestTrackInternal(
@@ -726,6 +757,7 @@ object SoundCloudAudioProvider {
         requireArtistMatch: Boolean,
         minScore: Int,
         maxDurationDiffSeconds: Long,
+        allowVersionMismatch: Boolean = false,
     ): MatchedTrack? {
         val wantedTitle = query.title.normalized()
         val wantedArtists = query.artists.map { it.normalized() }.filter { it.isNotBlank() }
@@ -748,7 +780,7 @@ object SoundCloudAudioProvider {
                 .filter { it.isNotBlank() }
             val candidateDescriptorText = listOf(candidateTitle, candidateArtists.joinToString(" ")).joinToString(" ")
 
-            if (hasVersionMismatch(wantedDescriptorText, candidateDescriptorText)) continue
+            if (!allowVersionMismatch && hasVersionMismatch(wantedDescriptorText, candidateDescriptorText)) continue
 
             val candidateTokens = significantTokens(candidateTitle)
             val matchedTokens = wantedTitleTokens.count(candidateTokens::contains)
@@ -861,7 +893,7 @@ object SoundCloudAudioProvider {
             .header("User-Agent", BROWSER_USER_AGENT)
     }
 
-    private fun searchTerms(query: Query): List<String> {
+    private fun searchTerms(query: Query, forWaveform: Boolean = false): List<String> {
         val title = query.title.trim()
         val artist = query.artists.firstOrNull().orEmpty().trim()
         val album = query.album.orEmpty().trim()
@@ -874,7 +906,25 @@ object SoundCloudAudioProvider {
             ""
         }
 
-        return listOf(primaryTerm).filter { it.isNotBlank() }
+        if (!forWaveform) {
+            return listOf(primaryTerm).filter { it.isNotBlank() }
+        }
+
+        // Waveform-only: try progressively looser terms so a mismatched artist credit, a
+        // parenthetical suffix, or an overly specific title doesn't leave the seek bar with no
+        // waveform at all. Order matters — first hit wins if it scores, but pooling across all
+        // of these in findBestTrack means a later term can still surface a match the primary
+        // term's search results missed entirely.
+        val titleOnly = title
+        val titleNoParens = title
+            .replace(Regex("""\[[^]]*]"""), " ")
+            .replace(Regex("""\([^)]*\)"""), " ")
+            .trim()
+            .replace(Regex("""\s+"""), " ")
+
+        return listOf(primaryTerm, titleOnly, titleNoParens)
+            .filter { it.isNotBlank() }
+            .distinct()
     }
 
     private fun JSONObject.toMatchedTrack(): MatchedTrack? {

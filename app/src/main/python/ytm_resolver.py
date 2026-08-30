@@ -3,7 +3,7 @@ import json
 import threading
 
 # Order of clients to try based on reliability/SABR status
-_DEFAULT_CLIENTS = ['web_remix', 'ios', 'android_vr', 'tvhtml5_simply']
+_DEFAULT_CLIENTS = ['web_remix', 'ios', 'android_vr', 'tvhtml5_simply', 'visionos', 'tvhtml5', 'web_creator']
 
 # Remember whichever client actually worked last, per process. Most calls
 # then need exactly one attempt instead of walking the full list from
@@ -19,7 +19,7 @@ def get_version():
     return yt_dlp.version.__version__
 
 
-def _build_opts(client, player_po_token=None, streaming_po_token=None, visitor_data=None):
+def _build_opts(client, player_po_token=None, streaming_po_token=None, visitor_data=None, cookie=None):
     opts = {
         # Narrowed selector: avoids yt-dlp building/sorting the full
         # (audio+video) format list before picking - we only ever want
@@ -43,6 +43,15 @@ def _build_opts(client, player_po_token=None, streaming_po_token=None, visitor_d
         'socket_timeout': 8,
     }
 
+    # Forward the user's YouTube session cookie (same one used elsewhere for
+    # Innertube header auth) as a raw Cookie header. yt-dlp applies
+    # http_headers to every request it makes for this extraction, including
+    # the innertube player/next calls - this is what lets clients that
+    # require sign-in (age-gated content, some 'web_creator'-style requests)
+    # succeed instead of failing with "Please sign in".
+    if cookie:
+        opts['http_headers'] = {'Cookie': cookie}
+
     # PO tokens generated via PoTokenGenerator (WebView botguard). Format
     # confirmed against yt-dlp's current PO-Token-Guide: comma-separated
     # "CLIENT.CONTEXT+TOKEN" entries, context is "gvs" (googlevideo/
@@ -62,8 +71,8 @@ def _build_opts(client, player_po_token=None, streaming_po_token=None, visitor_d
     return opts
 
 
-def _try_client(video_id, client, player_po_token=None, streaming_po_token=None, visitor_data=None):
-    opts = _build_opts(client, player_po_token, streaming_po_token, visitor_data)
+def _try_client(video_id, client, player_po_token=None, streaming_po_token=None, visitor_data=None, cookie=None):
+    opts = _build_opts(client, player_po_token, streaming_po_token, visitor_data, cookie)
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
         if info and 'url' in info:
@@ -71,7 +80,7 @@ def _try_client(video_id, client, player_po_token=None, streaming_po_token=None,
     return None
 
 
-def resolve(video_id, player_po_token=None, streaming_po_token=None, visitor_data=None):
+def resolve(video_id, player_po_token=None, streaming_po_token=None, visitor_data=None, cookie=None):
     global _last_working_client
 
     # Try last-known-good client first so the common case is a single
@@ -84,11 +93,18 @@ def resolve(video_id, player_po_token=None, streaming_po_token=None, visitor_dat
         ordered_clients.remove(preferred)
         ordered_clients.insert(0, preferred)
 
+    # 'web_creator' hard-requires a signed-in session - without a cookie it
+    # always fails with "Please sign in" and just wastes an attempt (and, if
+    # it's the last client tried, surfaces that confusing error to the user
+    # even though other clients might have worked fine).
+    if not cookie:
+        ordered_clients = [c for c in ordered_clients if c != 'web_creator']
+
     last_error = None
 
     for client in ordered_clients:
         try:
-            info = _try_client(video_id, client, player_po_token, streaming_po_token, visitor_data)
+            info = _try_client(video_id, client, player_po_token, streaming_po_token, visitor_data, cookie)
             if info:
                 with _lock:
                     _last_working_client = client
