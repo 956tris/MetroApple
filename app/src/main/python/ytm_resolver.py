@@ -1,9 +1,10 @@
 import yt_dlp
 import json
 import threading
+import os
 
 # Order of clients to try based on reliability/SABR status
-_DEFAULT_CLIENTS = ['web_remix', 'ios', 'android_vr', 'tvhtml5_simply', 'visionos', 'tvhtml5', 'web_creator']
+_DEFAULT_CLIENTS = ['web_remix', 'ios', 'android_vr', 'tvhtml5_simply', 'visionos', 'tvhtml5']
 
 # Remember whichever client actually worked last, per process. Most calls
 # then need exactly one attempt instead of walking the full list from
@@ -19,8 +20,8 @@ def get_version():
     return yt_dlp.version.__version__
 
 
-def _build_opts(client, player_po_token=None, streaming_po_token=None, visitor_data=None, cookie=None):
-    opts = {
+def _build_opts(client):
+    return {
         # Narrowed selector: avoids yt-dlp building/sorting the full
         # (audio+video) format list before picking - we only ever want
         # audio.
@@ -43,36 +44,9 @@ def _build_opts(client, player_po_token=None, streaming_po_token=None, visitor_d
         'socket_timeout': 8,
     }
 
-    # Forward the user's YouTube session cookie (same one used elsewhere for
-    # Innertube header auth) as a raw Cookie header. yt-dlp applies
-    # http_headers to every request it makes for this extraction, including
-    # the innertube player/next calls - this is what lets clients that
-    # require sign-in (age-gated content, some 'web_creator'-style requests)
-    # succeed instead of failing with "Please sign in".
-    if cookie:
-        opts['http_headers'] = {'Cookie': cookie}
 
-    # PO tokens generated via PoTokenGenerator (WebView botguard). Format
-    # confirmed against yt-dlp's current PO-Token-Guide: comma-separated
-    # "CLIENT.CONTEXT+TOKEN" entries, context is "gvs" (googlevideo/
-    # streaming URLs) or "player" (innertube player request). GVS tokens
-    # are rejected without visitor_data alongside them, so that's threaded
-    # through too whenever we have a token to send.
-    po_tokens = []
-    if streaming_po_token:
-        po_tokens.append(f'{client}.gvs+{streaming_po_token}')
-    if player_po_token:
-        po_tokens.append(f'{client}.player+{player_po_token}')
-    if po_tokens:
-        opts['extractor_args']['youtube']['po_token'] = po_tokens
-        if visitor_data:
-            opts['extractor_args']['youtube']['visitor_data'] = visitor_data
-
-    return opts
-
-
-def _try_client(video_id, client, player_po_token=None, streaming_po_token=None, visitor_data=None, cookie=None):
-    opts = _build_opts(client, player_po_token, streaming_po_token, visitor_data, cookie)
+def _try_client(video_id, client):
+    opts = _build_opts(client)
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
         if info and 'url' in info:
@@ -80,7 +54,76 @@ def _try_client(video_id, client, player_po_token=None, streaming_po_token=None,
     return None
 
 
-def resolve(video_id, player_po_token=None, streaming_po_token=None, visitor_data=None, cookie=None):
+def download(video_id, output_dir):
+    """
+    Full download fallback for when direct-URL extraction fails outright
+    (e.g. SABR-only responses with no plain progressive/adaptive URL to
+    hand to a player). yt-dlp's actual download path (download=True)
+    implements the SABR protocol itself internally to pull the file down -
+    unlike extract_info(download=False), which only ever returns a URL and
+    can't do anything with a client that has no direct URL to offer.
+    Downloads to output_dir under a video-id-based filename and returns the
+    local path once complete. Caller owns deleting the file after playback
+    finishes - this function has no visibility into when that happens.
+    """
+    global _last_working_client
+
+    with _lock:
+        preferred = _last_working_client
+
+    ordered_clients = list(_DEFAULT_CLIENTS)
+    if preferred and preferred in ordered_clients:
+        ordered_clients.remove(preferred)
+        ordered_clients.insert(0, preferred)
+
+    client_errors = []
+
+    for client in ordered_clients:
+        opts = _build_opts(client)
+        # %(id)s.%(ext)s keeps whatever real extension yt-dlp picked
+        # (m4a/webm/etc.) so the caller can hand the file straight to a
+        # player without needing to sniff the container itself.
+        opts['outtmpl'] = os.path.join(output_dir, '%(id)s.%(ext)s')
+        opts['overwrites'] = True
+        opts['noplaylist'] = True
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=True)
+            if not info:
+                client_errors.append(f'{client}: no info returned')
+                continue
+
+            filepath = ydl.prepare_filename(info)
+            if not os.path.isfile(filepath):
+                client_errors.append(f'{client}: download reported success but file missing')
+                continue
+
+            with _lock:
+                _last_working_client = client
+            return json.dumps({
+                'filepath': filepath,
+                'working_client': client,
+                'itag': info.get('format_id'),
+                'mime': info.get('ext'),
+                'bitrate': info.get('abr'),
+                'acodec': info.get('acodec'),
+                'asr': info.get('asr'),
+                'filesize': os.path.getsize(filepath),
+                'ytdlp_version': yt_dlp.version.__version__,
+            })
+        except Exception as e:
+            client_errors.append(f'{client}: {str(e)[:180]}')
+            with _lock:
+                if _last_working_client == client:
+                    _last_working_client = None
+            continue
+
+    errors_joined = ' || '.join(client_errors) if client_errors else 'All clients failed'
+    return json.dumps({'error': f'download failed: {errors_joined}'})
+
+
+def resolve(video_id):
     global _last_working_client
 
     # Try last-known-good client first so the common case is a single
@@ -93,18 +136,11 @@ def resolve(video_id, player_po_token=None, streaming_po_token=None, visitor_dat
         ordered_clients.remove(preferred)
         ordered_clients.insert(0, preferred)
 
-    # 'web_creator' hard-requires a signed-in session - without a cookie it
-    # always fails with "Please sign in" and just wastes an attempt (and, if
-    # it's the last client tried, surfaces that confusing error to the user
-    # even though other clients might have worked fine).
-    if not cookie:
-        ordered_clients = [c for c in ordered_clients if c != 'web_creator']
-
     last_error = None
 
     for client in ordered_clients:
         try:
-            info = _try_client(video_id, client, player_po_token, streaming_po_token, visitor_data, cookie)
+            info = _try_client(video_id, client)
             if info:
                 with _lock:
                     _last_working_client = client

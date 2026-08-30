@@ -215,6 +215,21 @@ object YouTubeAudioProvider {
         }.onSuccess { return cache(cacheKey, it) }
             .onFailure { ytDlpFailure = it }
 
+        // Last resort: some responses (SABR-only, no direct progressive/
+        // adaptive URL at all) can't be handled by URL-extraction no matter
+        // how many clients we try — yt-dlp's SABR handling only exists in
+        // its actual download path, not extract_info(download=False). Have
+        // yt-dlp fully download the audio (SABR handled transparently on
+        // its end) to a local cache file and hand ExoPlayer that instead of
+        // a remote URL. Slower and uses local storage, so this only runs
+        // once URL-based resolution has already failed twice above.
+        runCatching { resolveWithYtDlpDownload(videoId, now, context) }
+            .onSuccess { return cache(cacheKey, it) }
+            .onFailure {
+                ytDlpFailure = it
+                Timber.tag(TAG).w(it, "yt-dlp download fallback also failed for $videoId")
+            }
+
         throw YouTubeAudioResolutionException(
             "YouTube Music playback failed for $videoId: " +
                     "yt-dlp=${ytDlpFailure?.readableMessage() ?: "no candidate produced a stream"}",
@@ -228,32 +243,9 @@ object YouTubeAudioProvider {
         videoId: String,
         now: Long,
     ): Resolved = withContext(Dispatchers.IO) {
-        // PO tokens (generated via PoTokenGenerator's WebView botguard) are
-        // best-effort: if the session id is missing, generation fails, or
-        // it times out, we fall through to token-less resolution rather
-        // than treating it as a hard error. When the user is logged in,
-        // YouTube.dataSyncId ties the token to their session, which per
-        // yt-dlp's PO Token Guide is expected to be treated more favorably
-        // than an anonymous visitor-data-only token.
-        val sessionId = YouTube.dataSyncId ?: YouTube.visitorData
-        val poTokenResult = if (sessionId != null) {
-            runCatching { poTokenGenerator.getWebClientPoToken(videoId, sessionId) }
-                .onFailure { Timber.tag(TAG).w(it, "PoToken generation failed for $videoId, proceeding without") }
-                .getOrNull()
-        } else {
-            null
-        }
-
         val py = Python.getInstance()
         val ytmResolver = py.getModule("ytm_resolver")
-        val resultJsonString = ytmResolver.callAttr(
-            "resolve",
-            videoId,
-            poTokenResult?.playerRequestPoToken,
-            poTokenResult?.streamingDataPoToken,
-            YouTube.visitorData,
-            YouTube.cookie?.takeIf { it.isNotBlank() },
-        ).toString()
+        val resultJsonString = ytmResolver.callAttr("resolve", videoId).toString()
 
         val json = org.json.JSONObject(resultJsonString)
         if (json.has("error")) {
@@ -278,6 +270,102 @@ object YouTubeAudioProvider {
             // yt-dlp URLs usually last a while
             expiresAtMs = now + 60 * 60 * 1000L,
         )
+    }
+
+    /**
+     * One-in-flight-at-a-time download cache dir. Only ever expect one
+     * download-fallback file to matter at a time in practice (this is a
+     * last-resort path, not the common case), so cleanup is opportunistic:
+     * deleting the previous file whenever a new one lands covers normal
+     * skip/next-track flow, and sweeping the whole subdirectory on each
+     * call catches anything orphaned by a crash or force-stop.
+     */
+    private const val YTDLP_DOWNLOAD_SUBDIR = "ytdlp_downloads"
+
+    @Volatile
+    private var lastDownloadedFile: java.io.File? = null
+
+    /**
+     * Resolves a stream by having yt-dlp fully download the audio to a
+     * local cache file, rather than extracting a direct URL. This is the
+     * only way to get SABR-only responses playable at all without
+     * reimplementing YouTube's SABR wire protocol in Kotlin/ExoPlayer:
+     * yt-dlp's SABR handling lives entirely inside its download path
+     * (download=True), not its URL-extraction path (download=False) — a
+     * SABR-only client simply has no plain URL to hand back from the
+     * latter.
+     */
+    private suspend fun resolveWithYtDlpDownload(
+        videoId: String,
+        now: Long,
+        context: android.content.Context,
+    ): Resolved = withContext(Dispatchers.IO) {
+        val downloadDir = java.io.File(context.cacheDir, YTDLP_DOWNLOAD_SUBDIR).apply { mkdirs() }
+
+        // Sweep stray files before starting a new download — catches
+        // anything left behind by a crash, force-stop, or a previous
+        // failed attempt, not just the last successful one.
+        downloadDir.listFiles()?.forEach { it.delete() }
+
+        val py = Python.getInstance()
+        val ytmResolver = py.getModule("ytm_resolver")
+        val resultJsonString = ytmResolver.callAttr("download", videoId, downloadDir.absolutePath).toString()
+
+        val json = org.json.JSONObject(resultJsonString)
+        if (json.has("error")) {
+            throw YouTubeAudioResolutionException("yt-dlp download failed: ${json.getString("error")}")
+        }
+
+        val filePath = json.getString("filepath")
+        val file = java.io.File(filePath)
+        if (!file.isFile) {
+            throw YouTubeAudioResolutionException("yt-dlp reported a downloaded file that doesn't exist: $filePath")
+        }
+
+        lastDownloadedFile = file
+        val workingClient = json.optString("working_client", "unknown")
+
+        Resolved(
+            mediaUri = Uri.fromFile(file).toString(),
+            videoId = videoId,
+            clientKey = "ytdlp-download:$workingClient",
+            itag = json.optInt("itag", -1),
+            mimeType = when (json.optString("mime", "")) {
+                "webm" -> "audio/webm"
+                "m4a" -> "audio/mp4"
+                else -> "audio/mp4"
+            },
+            codecs = json.optString("acodec", "opus"),
+            bitrate = (json.optDouble("bitrate", 0.0) * 1000).toInt(),
+            sampleRate = null,
+            contentLength = json.optLong("filesize", -1L).takeIf { it > 0 },
+            loudnessDb = null,
+            perceptualLoudnessDb = null,
+            // The file is already fully downloaded and local — there's
+            // nothing to re-fetch or expire the way a remote URL would.
+            // Give it a long window; it gets cleaned up on the NEXT
+            // download call (or via releaseDownloadedFile) regardless.
+            expiresAtMs = now + 24 * 60 * 60 * 1000L,
+        )
+    }
+
+    /**
+     * Deletes a downloaded fallback file after playback is done with it.
+     * Call this from wherever playback lifecycle is tracked (track
+     * finished, skipped, or player released) once that hook is wired up.
+     * Safe to call even if [mediaUri] wasn't a download-fallback file (or
+     * the file's already gone) — this is best-effort cleanup, not a
+     * correctness requirement, since the NEXT download call also sweeps
+     * the whole subdirectory regardless.
+     */
+    fun releaseDownloadedFile(mediaUri: String) {
+        val uri = runCatching { Uri.parse(mediaUri) }.getOrNull() ?: return
+        if (uri.scheme != "file") return
+        val path = uri.path ?: return
+        runCatching { java.io.File(path).delete() }
+        if (lastDownloadedFile?.absolutePath == path) {
+            lastDownloadedFile = null
+        }
     }
 
     private suspend fun resolveWithExtractor(
