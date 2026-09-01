@@ -64,7 +64,7 @@ jobs:
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Release :app:lint${{ matrix.variantName }}Release --warning-mode summary
         env:
           METROLIST_APPLICATION_ID: com.metroapple.music
-          METROLIST_APP_NAME: Metrolist Nightly
+          METROLIST_APP_NAME: MetroFuse Nightly
           PULL_REQUEST: "false"
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
@@ -130,13 +130,28 @@ jobs:
 
       - name: Restore Persistent Keystore
         run: |
-          echo "${{ secrets.DEBUG_KEYSTORE }}" | base64 -d > ./app/persistent-debug.keystore
+          if [ -n "${{ secrets.DEBUG_KEYSTORE }}" ]; then
+            echo "${{ secrets.DEBUG_KEYSTORE }}" | base64 -d > ./app/persistent-debug.keystore || true
+          fi
+          KEYSTORE_SIZE=$(stat -c%s ./app/persistent-debug.keystore 2>/dev/null || echo 0)
+          if [ "$KEYSTORE_SIZE" -le 1024 ]; then
+            echo "DEBUG_KEYSTORE secret missing or invalid (size=$KEYSTORE_SIZE) - generating a fallback debug keystore"
+            keytool -genkeypair -v \
+              -keystore ./app/persistent-debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=MetroFuse Debug,O=MetroFuse,C=US"
+          fi
 
       - name: Build Debug APK and Run Lint
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Debug :app:lint${{ matrix.variantName }}Debug --warning-mode summary
         env:
           METROLIST_APPLICATION_ID: com.metroapple.music
-          METROLIST_APP_NAME: Metrolist Nightly
+          METROLIST_APP_NAME: MetroFuse Nightly
           PULL_REQUEST: "false"
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
