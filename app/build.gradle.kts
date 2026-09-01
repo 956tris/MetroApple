@@ -372,9 +372,19 @@ chaquopy {
         version = "3.11"
         // Chaquopy requires buildPython to be an exact minor-version match
         // for the target Python (3.11) — it hard-fails on any mismatch
-        // (3.14 was rejected outright). Python 3.11 is installed via the
-        // official installer at this path.
-        buildPython("C:/Users/Test/AppData/Local/Programs/Python/Python311/python.exe")
+        // (3.14 was rejected outright). Resolved as: explicit override env
+        // var, else "python3.11" on PATH (Linux/macOS/CI), else the
+        // Windows installer path used for local dev on this machine.
+        val buildPythonOverride = System.getenv("CHAQUOPY_BUILD_PYTHON")?.takeIf { it.isNotBlank() }
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        buildPython(
+            buildPythonOverride
+                ?: if (isWindows) {
+                    "C:/Users/Test/AppData/Local/Programs/Python/Python311/python.exe"
+                } else {
+                    "python3.11"
+                },
+        )
         pip {
             install("yt-dlp")
         }

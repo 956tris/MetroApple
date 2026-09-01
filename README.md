@@ -59,12 +59,10 @@ Im back :D
 
 <div align="center">
 
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_1.png" alt="Home screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_2.png" alt="Artist screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_3.png" alt="Recognize music screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_4.png" alt="Listen together screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_5.png" alt="Player screen" width="30%" />
-<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_6.png" alt="Lyrics screen" width="30%" />
+<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_1.png" alt="Lyrics screen" width="45%" />
+<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_2.png" alt="Player screen" width="45%" />
+<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_3.png" alt="Provider switcher showing YouTube Music, TIDAL, Spotify, SoundCloud, Deezer, and Offline" width="45%" />
+<img src="fastlane/metadata/android/en-US/images/screenshots/screenshot_4.png" alt="Home feed" width="45%" />
 
 </div>
 
