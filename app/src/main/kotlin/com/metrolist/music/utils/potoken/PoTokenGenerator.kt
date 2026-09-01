@@ -66,6 +66,11 @@ class PoTokenGenerator {
                     webViewBadImpl = true
                     null
                 }
+                is java.io.IOException -> {
+                    // No network (e.g. UnknownHostException when offline) - not fatal, just skip poToken
+                    Timber.tag(TAG).w("poToken generation failed due to network: ${e.message}")
+                    null
+                }
                 else -> throw e // includes PoTokenException
             }
         }
